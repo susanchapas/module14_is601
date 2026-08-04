@@ -231,6 +231,9 @@
   });
   </script>
 
+  <!-- Shared client-side helpers (must load before page-specific scripts) -->
+  <script src="{{ url_for('static', path='js/script.js') }}"></script>
+
   {% block scripts %}{% endblock %}
 </body>
 </html>

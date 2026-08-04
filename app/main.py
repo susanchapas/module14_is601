@@ -309,6 +309,55 @@ def list_calculations(
     return calculations
 
 
+def _get_owned_calculation(calc_id: str, current_user, db: Session) -> Calculation:
+    """
+    Fetch a calculation by UUID, scoped to the current user.
+
+    Raises:
+        HTTPException: 400 if the id is not a valid UUID, 404 if the calculation
+            does not exist or belongs to a different user.
+    """
+    try:
+        calc_uuid = UUID(calc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid calculation id format.")
+
+    calculation = db.query(Calculation).filter(
+        Calculation.id == calc_uuid,
+        Calculation.user_id == current_user.id
+    ).first()
+    if not calculation:
+        raise HTTPException(status_code=404, detail="Calculation not found.")
+
+    return calculation
+
+
+def _apply_calculation_update(
+    calculation: Calculation,
+    calculation_update: CalculationUpdate,
+    db: Session
+) -> Calculation:
+    """
+    Apply updated inputs to a calculation and recompute its result.
+
+    Raises:
+        HTTPException: 400 if the new inputs are invalid for the calculation type
+            (for example, dividing by zero).
+    """
+    if calculation_update.inputs is not None:
+        calculation.inputs = calculation_update.inputs
+        try:
+            calculation.result = calculation.get_result()
+        except ValueError as e:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    calculation.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(calculation)
+    return calculation
+
+
 # Read / Retrieve a Specific Calculation by ID
 @app.get("/calculations/{calc_id}", response_model=CalculationResponse, tags=["calculations"])
 def get_calculation(
@@ -319,22 +368,10 @@ def get_calculation(
     """
     Retrieve a single calculation by its UUID, if it belongs to the current user.
     """
-    try:
-        calc_uuid = UUID(calc_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid calculation id format.")
-
-    calculation = db.query(Calculation).filter(
-        Calculation.id == calc_uuid,
-        Calculation.user_id == current_user.id
-    ).first()
-    if not calculation:
-        raise HTTPException(status_code=404, detail="Calculation not found.")
-
-    return calculation
+    return _get_owned_calculation(calc_id, current_user, db)
 
 
-# Edit / Update a Calculation
+# Edit / Update a Calculation (full replace)
 @app.put("/calculations/{calc_id}", response_model=CalculationResponse, tags=["calculations"])
 def update_calculation(
     calc_id: str,
@@ -345,26 +382,26 @@ def update_calculation(
     """
     Update the inputs (and thus the result) of a specific calculation.
     """
-    try:
-        calc_uuid = UUID(calc_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid calculation id format.")
+    calculation = _get_owned_calculation(calc_id, current_user, db)
+    return _apply_calculation_update(calculation, calculation_update, db)
 
-    calculation = db.query(Calculation).filter(
-        Calculation.id == calc_uuid,
-        Calculation.user_id == current_user.id
-    ).first()
-    if not calculation:
-        raise HTTPException(status_code=404, detail="Calculation not found.")
 
-    if calculation_update.inputs is not None:
-        calculation.inputs = calculation_update.inputs
-        calculation.result = calculation.get_result()
+# Edit / Update a Calculation (partial)
+@app.patch("/calculations/{calc_id}", response_model=CalculationResponse, tags=["calculations"])
+def partially_update_calculation(
+    calc_id: str,
+    calculation_update: CalculationUpdate,
+    current_user = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Partially update a specific calculation.
 
-    calculation.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(calculation)
-    return calculation
+    Fields omitted from the request body are left unchanged, so sending an empty
+    body is a no-op that returns the calculation as-is.
+    """
+    calculation = _get_owned_calculation(calc_id, current_user, db)
+    return _apply_calculation_update(calculation, calculation_update, db)
 
 
 # Delete a Calculation
@@ -377,18 +414,7 @@ def delete_calculation(
     """
     Delete a calculation by its UUID, if it belongs to the current user.
     """
-    try:
-        calc_uuid = UUID(calc_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid calculation id format.")
-
-    calculation = db.query(Calculation).filter(
-        Calculation.id == calc_uuid,
-        Calculation.user_id == current_user.id
-    ).first()
-    if not calculation:
-        raise HTTPException(status_code=404, detail="Calculation not found.")
-
+    calculation = _get_owned_calculation(calc_id, current_user, db)
     db.delete(calculation)
     db.commit()
     return None

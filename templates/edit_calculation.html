@@ -309,12 +309,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Function to update the preview
   function updatePreview() {
     const type = calcTypeInput.value;
-    const inputsString = calcInputsInput.value;
-    const inputs = inputsString
-      .split(',')
-      .map(num => parseFloat(num.trim()))
-      .filter(num => !isNaN(num));
-    
+    const { values: inputs, error: previewError } =
+      window.validateCalculationInputs(calcInputsInput.value, type);
+
+    if (previewError) {
+      previewResult.innerHTML = `
+        <p id="previewMessage" class="text-gray-500 text-center">${previewError}</p>
+      `;
+      return;
+    }
+
     // Create appropriate operator symbol
     let operator;
     switch (type) {
@@ -332,16 +336,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         break;
       default:
         operator = '?';
-    }
-    
-    // Update preview section
-    if (inputs.length < 2) {
-      previewResult.innerHTML = `
-        <p class="text-gray-500 text-center">
-          Enter at least two valid numbers to see the preview
-        </p>
-      `;
-      return;
     }
     
     const result = calculatePreview(type, inputs);
@@ -423,44 +417,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     const submitButton = e.target.querySelector('button[type="submit"]');
     const originalButtonContent = submitButton.innerHTML;
     
-    // Parse input string into an array of floats
-    const newInputs = calcInputsInput.value
-      .split(',')
-      .map(num => parseFloat(num.trim()))
-      .filter(num => !isNaN(num));
+    // Parse and validate the inputs with the shared client-side rules
+    const { values: newInputs, error: validationError } =
+      window.validateCalculationInputs(calcInputsInput.value, calcTypeInput.value);
 
-    // Validate inputs
-    if (newInputs.length < 2) {
-      showError('Please enter at least two valid numbers separated by commas.');
-      
+    if (validationError) {
+      showError(validationError);
+
       // Add error class to the input
       calcInputsInput.classList.add('border-red-500', 'bg-red-50');
       document.getElementById('inputHelp').classList.add('text-red-500');
-      document.getElementById('inputHelp').textContent = 'At least two valid numbers are required.';
-      
+      document.getElementById('inputHelp').textContent = validationError;
+
       // Focus the input
       calcInputsInput.focus();
-      
+
       // Remove error styling after a delay or on input
       setTimeout(() => {
         calcInputsInput.classList.remove('border-red-500', 'bg-red-50');
         document.getElementById('inputHelp').classList.remove('text-red-500');
         document.getElementById('inputHelp').textContent = 'Enter two or more numbers separated by commas.';
       }, 3000);
-      
+
       calcInputsInput.addEventListener('input', function removeErrorOnce() {
         calcInputsInput.classList.remove('border-red-500', 'bg-red-50');
         document.getElementById('inputHelp').classList.remove('text-red-500');
         document.getElementById('inputHelp').textContent = 'Enter two or more numbers separated by commas.';
         calcInputsInput.removeEventListener('input', removeErrorOnce);
       });
-      
-      return;
-    }
-    
-    // Check for division by zero
-    if (calcTypeInput.value === 'division' && newInputs.some((value, index) => index > 0 && value === 0)) {
-      showError('Division by zero is not allowed.');
+
       return;
     }
 
@@ -489,7 +474,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Try to parse any error message from the API
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || 'Failed to update calculation');
+        throw new Error(window.extractErrorMessage(errorData, 'Failed to update calculation'));
       }
       
       // Get the updated calculation

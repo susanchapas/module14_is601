@@ -9,13 +9,7 @@ from app.models.calculation import Calculation
 # ---------------------------------------------------------------------------
 # Helper Fixtures and Functions
 # ---------------------------------------------------------------------------
-@pytest.fixture
-def base_url(fastapi_server: str) -> str:
-    """
-    Returns the FastAPI server base URL without a trailing slash.
-    """
-    return fastapi_server.rstrip("/")
-
+# Note: the `base_url` fixture is provided by tests/conftest.py.
 def _parse_datetime(dt_str: str) -> datetime:
     """Helper function to parse datetime strings from API responses."""
     if dt_str.endswith('Z'):
@@ -39,6 +33,38 @@ def register_and_login(base_url: str, user_data: dict) -> dict:
     login_response = requests.post(login_url, json=login_payload)
     assert login_response.status_code == 200, f"Login failed: {login_response.text}"
     return login_response.json()
+
+def make_auth_headers(base_url: str) -> dict:
+    """
+    Register a throwaway user and return Authorization headers for it.
+    """
+    suffix = uuid4()
+    user_data = {
+        "first_name": "Calc",
+        "last_name": "User",
+        "email": f"calc.user{suffix}@example.com",
+        "username": f"calc_user_{suffix}",
+        "password": "SecurePass123!",
+        "confirm_password": "SecurePass123!"
+    }
+    token_data = register_and_login(base_url, user_data)
+    return {"Authorization": f"Bearer {token_data['access_token']}"}
+
+@pytest.fixture
+def auth_headers(base_url: str) -> dict:
+    """Authorization headers for a freshly registered user."""
+    return make_auth_headers(base_url)
+
+@pytest.fixture
+def sample_calculation(base_url: str, auth_headers: dict) -> dict:
+    """A multiplication calculation (3 * 4 = 12) owned by the authenticated user."""
+    response = requests.post(
+        f"{base_url}/calculations",
+        json={"type": "multiplication", "inputs": [3, 4]},
+        headers=auth_headers
+    )
+    assert response.status_code == 201, f"Setup calculation failed: {response.text}"
+    return response.json()
 
 # ---------------------------------------------------------------------------
 # Health and Auth Endpoint Tests
@@ -286,6 +312,140 @@ def test_list_get_update_delete_calculation(base_url: str):
     # Verify deletion: GET should return 404
     get_response_after_delete = requests.get(get_url, headers=headers)
     assert get_response_after_delete.status_code == 404, "Expected 404 after deletion"
+
+def test_patch_calculation(base_url: str, auth_headers: dict, sample_calculation: dict):
+    """PATCH applies a partial update and recomputes the result."""
+    url = f"{base_url}/calculations/{sample_calculation['id']}"
+    response = requests.patch(url, json={"inputs": [6, 7]}, headers=auth_headers)
+    assert response.status_code == 200, f"PATCH failed: {response.text}"
+    assert response.json()["result"] == 42
+
+def test_patch_calculation_without_inputs_is_noop(
+    base_url: str, auth_headers: dict, sample_calculation: dict
+):
+    """PATCH with an empty body leaves the calculation unchanged."""
+    url = f"{base_url}/calculations/{sample_calculation['id']}"
+    response = requests.patch(url, json={}, headers=auth_headers)
+    assert response.status_code == 200, f"PATCH failed: {response.text}"
+    assert response.json()["result"] == sample_calculation["result"]
+
+# ---------------------------------------------------------------------------
+# Negative Scenarios: Unauthorized Access
+# ---------------------------------------------------------------------------
+def test_calculation_endpoints_require_authentication(base_url: str):
+    """Every calculations endpoint rejects an unauthenticated request."""
+    calc_id = uuid4()
+    unauthenticated_requests = [
+        ("browse", requests.get, f"{base_url}/calculations", None),
+        ("add", requests.post, f"{base_url}/calculations", {"type": "addition", "inputs": [1, 2]}),
+        ("read", requests.get, f"{base_url}/calculations/{calc_id}", None),
+        ("edit", requests.put, f"{base_url}/calculations/{calc_id}", {"inputs": [1, 2]}),
+        ("patch", requests.patch, f"{base_url}/calculations/{calc_id}", {"inputs": [1, 2]}),
+        ("delete", requests.delete, f"{base_url}/calculations/{calc_id}", None),
+    ]
+    for name, method, url, payload in unauthenticated_requests:
+        response = method(url, json=payload) if payload else method(url)
+        assert response.status_code == 401, (
+            f"{name} should require authentication, got {response.status_code}"
+        )
+
+def test_calculation_endpoints_reject_invalid_token(base_url: str):
+    """A malformed bearer token is rejected."""
+    headers = {"Authorization": "Bearer not-a-real-token"}
+    response = requests.get(f"{base_url}/calculations", headers=headers)
+    assert response.status_code == 401, f"Expected 401, got {response.status_code}"
+
+def test_cannot_access_another_users_calculation(base_url: str, sample_calculation: dict):
+    """A calculation owned by one user is invisible to another user."""
+    other_headers = make_auth_headers(base_url)
+    url = f"{base_url}/calculations/{sample_calculation['id']}"
+
+    assert requests.get(url, headers=other_headers).status_code == 404
+    assert requests.put(url, json={"inputs": [1, 2]}, headers=other_headers).status_code == 404
+    assert requests.patch(url, json={"inputs": [1, 2]}, headers=other_headers).status_code == 404
+    assert requests.delete(url, headers=other_headers).status_code == 404
+
+def test_browse_only_returns_own_calculations(base_url: str, sample_calculation: dict):
+    """Browse is scoped to the authenticated user."""
+    other_headers = make_auth_headers(base_url)
+    response = requests.get(f"{base_url}/calculations", headers=other_headers)
+    assert response.status_code == 200
+    assert response.json() == [], "A new user should not see another user's calculations"
+
+# ---------------------------------------------------------------------------
+# Negative Scenarios: Invalid Input and Error Responses
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("payload, description", [
+    ({"type": "modulo", "inputs": [1, 2]}, "unsupported operation type"),
+    ({"type": "addition", "inputs": [5]}, "fewer than two inputs"),
+    ({"type": "addition", "inputs": []}, "no inputs"),
+    ({"type": "addition", "inputs": "not-a-list"}, "inputs not a list"),
+    ({"type": "addition", "inputs": ["a", "b"]}, "non-numeric inputs"),
+    ({"type": "division", "inputs": [10, 0]}, "division by zero"),
+    ({"inputs": [1, 2]}, "missing type"),
+    ({"type": "addition"}, "missing inputs"),
+])
+def test_create_calculation_rejects_invalid_payload(
+    base_url: str, auth_headers: dict, payload: dict, description: str
+):
+    """Invalid create payloads are rejected with a validation error."""
+    response = requests.post(f"{base_url}/calculations", json=payload, headers=auth_headers)
+    assert response.status_code == 422, (
+        f"Expected 422 for {description}, got {response.status_code}: {response.text}"
+    )
+
+def test_read_invalid_uuid_returns_400(base_url: str, auth_headers: dict):
+    """A malformed calculation id is a client error, not a server error."""
+    response = requests.get(f"{base_url}/calculations/not-a-uuid", headers=auth_headers)
+    assert response.status_code == 400, f"Expected 400, got {response.status_code}"
+    assert "Invalid calculation id format" in response.json()["detail"]
+
+def test_delete_invalid_uuid_returns_400(base_url: str, auth_headers: dict):
+    """Deleting with a malformed id returns 400."""
+    response = requests.delete(f"{base_url}/calculations/not-a-uuid", headers=auth_headers)
+    assert response.status_code == 400, f"Expected 400, got {response.status_code}"
+
+def test_missing_calculation_returns_404(base_url: str, auth_headers: dict):
+    """Operating on a non-existent calculation returns 404."""
+    url = f"{base_url}/calculations/{uuid4()}"
+    assert requests.get(url, headers=auth_headers).status_code == 404
+    assert requests.put(url, json={"inputs": [1, 2]}, headers=auth_headers).status_code == 404
+    assert requests.patch(url, json={"inputs": [1, 2]}, headers=auth_headers).status_code == 404
+    assert requests.delete(url, headers=auth_headers).status_code == 404
+
+def test_update_rejects_single_input(base_url: str, auth_headers: dict, sample_calculation: dict):
+    """An update with fewer than two inputs is rejected."""
+    url = f"{base_url}/calculations/{sample_calculation['id']}"
+    response = requests.put(url, json={"inputs": [5]}, headers=auth_headers)
+    assert response.status_code == 422, f"Expected 422, got {response.status_code}"
+
+def test_update_division_by_zero_returns_400(base_url: str, auth_headers: dict):
+    """
+    Updating a division calculation so that it divides by zero is a client error.
+
+    The recomputation happens in the model rather than in schema validation, so
+    the endpoint has to translate that failure into a 400 instead of a 500.
+    """
+    create_response = requests.post(
+        f"{base_url}/calculations",
+        json={"type": "division", "inputs": [100, 2]},
+        headers=auth_headers
+    )
+    assert create_response.status_code == 201
+    calc_id = create_response.json()["id"]
+    url = f"{base_url}/calculations/{calc_id}"
+
+    for method in (requests.put, requests.patch):
+        response = method(url, json={"inputs": [10, 0]}, headers=auth_headers)
+        assert response.status_code == 400, (
+            f"Expected 400 from {method.__name__.upper()}, got {response.status_code}: {response.text}"
+        )
+        assert "divide by zero" in response.json()["detail"].lower()
+
+    # The stored calculation is untouched by the rejected updates.
+    unchanged = requests.get(url, headers=auth_headers).json()
+    assert unchanged["result"] == 50
+    assert unchanged["inputs"] == [100, 2]
 
 # ---------------------------------------------------------------------------
 # Direct Model Tests for Calculation Operations

@@ -405,28 +405,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const submitButton = form.querySelector('button[type="submit"]');
     const originalButtonContent = submitButton.innerHTML;
     
+    const calcType = document.getElementById('calcType').value;
     const inputsVal = document.getElementById('calcInputs').value;
-    const inputs = inputsVal.split(',')
-      .map(num => parseFloat(num.trim()))
-      .filter(num => !isNaN(num));
+    const { values: inputs, error: validationError } = window.validateCalculationInputs(inputsVal, calcType);
 
-    if (inputs.length < 2) {
-      showError('Please enter at least two valid numbers, separated by commas');
-      
+    if (validationError) {
+      showError(validationError);
+
       // Highlight the input field with an error state
       const inputField = document.getElementById('calcInputs');
       inputField.classList.add('border-red-500');
       inputField.focus();
-      
+
       // Remove error highlight after 3 seconds or when user types
       setTimeout(() => inputField.classList.remove('border-red-500'), 3000);
       inputField.addEventListener('input', () => inputField.classList.remove('border-red-500'), { once: true });
-      
+
       return;
     }
 
     const newCalc = {
-      type: document.getElementById('calcType').value,
+      type: calcType,
       inputs
     };
 
@@ -451,8 +450,8 @@ document.addEventListener('DOMContentLoaded', function() {
           return;
         }
         
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to create calculation');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(window.extractErrorMessage(errorData, 'Failed to create calculation'));
       }
       
       // Get the created calculation data

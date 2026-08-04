@@ -1,5 +1,6 @@
 import socket
 import subprocess
+import sys
 import time
 import logging
 from typing import Generator, Dict, List
@@ -186,7 +187,7 @@ def fastapi_server():
     logger.info(f"Starting FastAPI server on port {base_port}...")
 
     process = subprocess.Popen(
-        ['uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', str(base_port)],
+        [sys.executable, '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', str(base_port)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -212,6 +213,11 @@ def fastapi_server():
     except subprocess.TimeoutExpired:
         process.kill()
         logger.warning("Test server forcefully stopped.")
+
+@pytest.fixture
+def base_url(fastapi_server: str) -> str:
+    """Base URL of the running FastAPI test server, without a trailing slash."""
+    return fastapi_server.rstrip("/")
 
 # ======================================================================================
 # Playwright Fixtures for UI Testing
