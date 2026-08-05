@@ -313,6 +313,49 @@ def test_list_get_update_delete_calculation(base_url: str):
     get_response_after_delete = requests.get(get_url, headers=headers)
     assert get_response_after_delete.status_code == 404, "Expected 404 after deletion"
 
+def test_update_persists_to_database(
+    base_url: str, auth_headers: dict, sample_calculation: dict
+):
+    """An edit is persisted, not just echoed back in the response."""
+    url = f"{base_url}/calculations/{sample_calculation['id']}"
+    update_response = requests.put(url, json={"inputs": [8, 9]}, headers=auth_headers)
+    assert update_response.status_code == 200, f"Update failed: {update_response.text}"
+    assert update_response.json()["result"] == 72
+
+    refetched = requests.get(url, headers=auth_headers).json()
+    assert refetched["inputs"] == [8, 9], "Updated inputs were not persisted"
+    assert refetched["result"] == 72, "Updated result was not persisted"
+
+def test_delete_only_removes_the_target_calculation(base_url: str, auth_headers: dict):
+    """Delete removes exactly one calculation and leaves the others intact."""
+    created = []
+    for calc_type, inputs in [
+        ("addition", [1, 2]),
+        ("multiplication", [3, 4]),
+        ("subtraction", [10, 4]),
+    ]:
+        response = requests.post(
+            f"{base_url}/calculations",
+            json={"type": calc_type, "inputs": inputs},
+            headers=auth_headers
+        )
+        assert response.status_code == 201, f"Setup failed: {response.text}"
+        created.append(response.json())
+
+    target = created[1]
+    delete_response = requests.delete(
+        f"{base_url}/calculations/{target['id']}", headers=auth_headers
+    )
+    assert delete_response.status_code == 204
+
+    remaining = requests.get(f"{base_url}/calculations", headers=auth_headers).json()
+    assert len(remaining) == 2, f"Expected 2 calculations left, got {len(remaining)}"
+
+    by_id = {c["id"]: c for c in remaining}
+    assert target["id"] not in by_id, "Deleted calculation is still present"
+    assert by_id[created[0]["id"]]["result"] == 3, "Untouched calculation was modified"
+    assert by_id[created[2]["id"]]["result"] == 6, "Untouched calculation was modified"
+
 def test_patch_calculation(base_url: str, auth_headers: dict, sample_calculation: dict):
     """PATCH applies a partial update and recomputes the result."""
     url = f"{base_url}/calculations/{sample_calculation['id']}"

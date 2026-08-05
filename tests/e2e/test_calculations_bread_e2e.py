@@ -278,6 +278,34 @@ def test_delete_calculation_from_dashboard(
     )
 
 
+def test_delete_leaves_other_calculations_intact(
+    page: Page, base_url: str, user: dict, token: str
+):
+    """Delete: removing one row does not disturb the user's other calculations."""
+    _create_calculation(base_url, token, "addition", [1, 2])
+    _create_calculation(base_url, token, "multiplication", [3, 4])
+    _create_calculation(base_url, token, "subtraction", [10, 4])
+
+    _ui_login(page, base_url, user)
+    expect(page.locator("#calculationsTable tr")).to_have_count(3, timeout=NAV_TIMEOUT)
+
+    # Delete the multiplication row specifically.
+    target_row = page.locator("#calculationsTable tr", has_text="multiplication")
+    target_row.locator(".delete-calc").click()
+
+    expect(page.locator("#calculationsTable tr")).to_have_count(2, timeout=NAV_TIMEOUT)
+    table = page.locator("#calculationsTable")
+    expect(table).not_to_contain_text("multiplication")
+
+    # The survivors keep their original results (3 and 6).
+    expect(table).to_contain_text("addition")
+    expect(table).to_contain_text("subtraction")
+    remaining = requests.get(
+        f"{base_url}/calculations", headers={"Authorization": f"Bearer {token}"}
+    ).json()
+    assert sorted(c["result"] for c in remaining) == [3, 6]
+
+
 def test_delete_calculation_from_detail_page(
     page: Page, base_url: str, user: dict, token: str
 ):

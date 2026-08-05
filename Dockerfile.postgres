@@ -1,0 +1,6 @@
+FROM postgres:17
+
+# Baked in at build time instead of bind-mounted, so the stack does not depend on
+# host filesystem sharing. Runs automatically on first initialization of the
+# data volume and creates the database used by the test suite.
+COPY init-db.sh /docker-entrypoint-initdb.d/init-db.sh
