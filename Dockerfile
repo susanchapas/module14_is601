@@ -12,16 +12,21 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc python3-dev libssl-dev curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and essential Python tools
-RUN python -m pip install --upgrade pip setuptools>=70.0.0 wheel
+# Upgrade pip and essential Python tools. The version specifiers must stay quoted:
+# unquoted, the shell reads ">=" as an output redirect and silently drops the pin.
+RUN python -m pip install --upgrade pip "setuptools>=78.1.1" wheel && \
+    rm -rf /usr/local/lib/python3.10/ensurepip/_bundled
 
 # Create non-root user
 RUN groupadd -r appgroup && \
     useradd -r -g appgroup appuser
 
-# Copy dependencies and install them
+# Copy dependencies and install them. pip is removed afterwards because nothing at
+# runtime installs packages, and its vendored copies of msgpack and setuptools are
+# the only remaining source of known CVEs in this image.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    python -m pip uninstall -y pip
 
 # Copy application code
 COPY . .
