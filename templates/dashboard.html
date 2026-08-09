@@ -88,8 +88,41 @@
   </form>
 </div>
 
+<!-- Usage Summary Card -->
+<div
+  id="statsCard"
+  class="bg-white shadow-lg rounded-lg mb-6 p-6
+         transition-all duration-300 hover:shadow-xl border border-gray-100"
+>
+  <h2 class="text-xl font-bold mb-4 text-gray-800 flex items-center">
+    <svg class="w-5 h-5 mr-2 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+    </svg>
+    Usage Summary
+  </h2>
+  <dl class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+      <dt class="text-xs font-semibold text-gray-700 uppercase tracking-wider">Total</dt>
+      <dd id="statTotal" class="mt-1 text-2xl font-bold text-gray-800">—</dd>
+    </div>
+    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+      <dt class="text-xs font-semibold text-gray-700 uppercase tracking-wider">Avg. Operands</dt>
+      <dd id="statAverageOperands" class="mt-1 text-2xl font-bold text-gray-800">—</dd>
+    </div>
+    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+      <dt class="text-xs font-semibold text-gray-700 uppercase tracking-wider">Most Used</dt>
+      <dd id="statMostUsed" class="mt-1 text-2xl font-bold text-gray-800 capitalize">—</dd>
+    </div>
+    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+      <dt class="text-xs font-semibold text-gray-700 uppercase tracking-wider">Last Calculation</dt>
+      <dd id="statLastCalculation" class="mt-1 text-sm font-medium text-gray-800">—</dd>
+    </div>
+  </dl>
+  <ul id="statsByType" class="mt-4 flex flex-wrap gap-2"></ul>
+</div>
+
 <!-- Calculations History Card -->
-<div 
+<div
   class="bg-white shadow-lg rounded-lg p-6 transition-all duration-300
          hover:shadow-xl border border-gray-100"
 >
@@ -222,6 +255,45 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Scroll to the success message if not visible
     successAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // Load the usage summary from the API
+  async function loadStats() {
+    try {
+      const response = await fetch('/calculations/stats', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.clear();
+          window.location.href = '/login';
+          return;
+        }
+        throw new Error('Failed to load usage summary');
+      }
+
+      const stats = await response.json();
+
+      document.getElementById('statTotal').textContent = stats.total_calculations;
+      document.getElementById('statAverageOperands').textContent =
+        stats.average_operands.toFixed(2);
+      document.getElementById('statMostUsed').textContent = stats.most_used_type || '—';
+      document.getElementById('statLastCalculation').textContent =
+        stats.last_calculation_at
+          ? new Date(stats.last_calculation_at).toLocaleString()
+          : '—';
+
+      document.getElementById('statsByType').innerHTML = Object.entries(stats.counts_by_type)
+        .map(([type, count]) => `
+          <li class="px-3 py-1 rounded-full bg-blue-50 text-blue-800 text-sm font-medium capitalize">
+            ${type}: <span class="font-bold" data-type-count="${type}">${count}</span>
+          </li>
+        `)
+        .join('');
+    } catch (err) {
+      showError(err.message || 'Error loading usage summary');
+    }
   }
 
   // Load the calculations from the API
@@ -358,9 +430,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const row = e.target.closest('tr');
             row.style.transition = 'opacity 0.5s';
             row.style.opacity = '0';
-            setTimeout(() => {
-              loadCalculations();
-            }, 500);
+            setTimeout(refreshDashboard, 500);
             
           } catch (err) {
             // Restore the button
@@ -393,8 +463,14 @@ document.addEventListener('DOMContentLoaded', function() {
       `;
       
       // Add retry button functionality
-      document.getElementById('retryButton')?.addEventListener('click', loadCalculations);
+      document.getElementById('retryButton')?.addEventListener('click', refreshDashboard);
     }
+  }
+
+  // The history table and the summary always describe the same data, so they
+  // are refreshed together.
+  function refreshDashboard() {
+    return Promise.all([loadCalculations(), loadStats()]);
   }
 
   // Handle form submission for new calculation
@@ -459,7 +535,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
       showSuccess(`Calculation complete: ${result.result}`);
       form.reset();
-      loadCalculations();
+      refreshDashboard();
       
       // Add a highlight effect to the table to draw attention to the new entry
       setTimeout(() => {
@@ -482,7 +558,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Initial load
-  loadCalculations();
+  refreshDashboard();
   
   // Optional features:
   

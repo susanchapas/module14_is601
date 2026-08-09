@@ -14,9 +14,10 @@ These models are designed for a calculator application that supports
 basic mathematical operations: addition, subtraction, multiplication, and division.
 """
 
+from collections import Counter
 from datetime import datetime
 import uuid
-from typing import List
+from typing import Any, Dict, List
 from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, declared_attr
@@ -173,16 +174,43 @@ class AbstractCalculation:
         Raises:
             ValueError: If the calculation_type is not supported
         """
-        calculation_classes = {
-            'addition': Addition,
-            'subtraction': Subtraction,
-            'multiplication': Multiplication,
-            'division': Division,
-        }
-        calculation_class = calculation_classes.get(calculation_type.lower())
+        calculation_class = CALCULATION_TYPES.get(calculation_type.lower())
         if not calculation_class:
             raise ValueError(f"Unsupported calculation type: {calculation_type}")
         return calculation_class(user_id=user_id, inputs=inputs)
+
+    @staticmethod
+    def summarize(calculations: List["Calculation"]) -> Dict[str, Any]:
+        """
+        Aggregate a list of calculations into usage statistics.
+
+        This is deliberately free of database access so the reporting rules can
+        be tested and reused independently of how the calculations were fetched.
+
+        Every supported type appears in counts_by_type, including the unused
+        ones, so callers get a stable shape to render. Ties for the most used
+        type are broken by the order the types are declared in.
+
+        Args:
+            calculations: The calculations to summarize, typically one user's history
+
+        Returns:
+            dict: Statistics matching the CalculationStats schema. An empty list
+                yields zeroed totals and None for the optional fields.
+        """
+        total = len(calculations)
+        counts = Counter(calculation.type for calculation in calculations)
+        operands = sum(len(calculation.inputs) for calculation in calculations)
+
+        return {
+            "total_calculations": total,
+            "average_operands": round(operands / total, 2) if total else 0.0,
+            "counts_by_type": {name: counts[name] for name in CALCULATION_TYPES},
+            "most_used_type": max(CALCULATION_TYPES, key=lambda name: counts[name]) if total else None,
+            "last_calculation_at": max(
+                (calculation.created_at for calculation in calculations), default=None
+            ),
+        }
 
     def get_result(self) -> float:
         """
@@ -354,3 +382,14 @@ class Division(Calculation):
                 raise ValueError("Cannot divide by zero.")
             result /= value
         return result
+
+# The single registry of supported calculation types, keyed by polymorphic
+# identity. Declared after the subclasses so both Calculation.create() and
+# Calculation.summarize() work from one source of truth; the declaration order
+# also fixes the tie-break order used when reporting the most used type.
+CALCULATION_TYPES = {
+    'addition': Addition,
+    'subtraction': Subtraction,
+    'multiplication': Multiplication,
+    'division': Division,
+}

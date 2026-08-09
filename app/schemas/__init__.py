@@ -14,7 +14,8 @@ from .calculation import (
     CalculationBase,
     CalculationCreate,
     CalculationUpdate,
-    CalculationResponse
+    CalculationResponse,
+    CalculationStats
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     'CalculationCreate',
     'CalculationUpdate',
     'CalculationResponse',
+    'CalculationStats',
 ]

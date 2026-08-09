@@ -35,7 +35,7 @@ import uvicorn  # ASGI server for running FastAPI apps
 from app.auth.dependencies import get_current_active_user, get_current_user_record  # Authentication dependencies
 from app.models.calculation import Calculation  # Database model for calculations
 from app.models.user import User  # Database model for users
-from app.schemas.calculation import CalculationBase, CalculationResponse, CalculationUpdate  # API request/response schemas
+from app.schemas.calculation import CalculationBase, CalculationResponse, CalculationStats, CalculationUpdate  # API request/response schemas
 from app.schemas.token import TokenResponse  # API token schema
 from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate, PasswordUpdate  # User schemas
 from app.database import Base, get_db, engine  # Database connection
@@ -372,6 +372,24 @@ def list_calculations(
     """
     calculations = db.query(Calculation).filter(Calculation.user_id == current_user.id).all()
     return calculations
+
+
+# Report / Usage statistics
+# Declared before /calculations/{calc_id} so that "stats" is matched as a
+# literal path and not captured as a calculation id.
+@app.get("/calculations/stats", response_model=CalculationStats, tags=["calculations"])
+def get_calculation_stats(
+    current_user = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Summarize the current authenticated user's calculation history.
+
+    Reports how many calculations they have saved, the average number of
+    operands, a per-type breakdown, and when they last calculated something.
+    """
+    calculations = db.query(Calculation).filter(Calculation.user_id == current_user.id).all()
+    return Calculation.summarize(calculations)
 
 
 def _get_owned_calculation(calc_id: str, current_user, db: Session) -> Calculation:

@@ -14,7 +14,7 @@ clear error messages when validation fails.
 
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
-from typing import List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 from datetime import datetime
 
@@ -212,6 +212,59 @@ class CalculationUpdate(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={"example": {"inputs": [42, 7]}}
+    )
+
+class CalculationStats(BaseModel):
+    """
+    Schema for the usage summary of a user's calculation history.
+
+    Used by GET /calculations/stats to report how much the calculator has been
+    used and how. All fields are derived values, never stored, so this schema is
+    read-only and has no counterpart for creating or updating.
+
+    An empty history is a valid summary: the totals are zero and the optional
+    fields are null.
+    """
+    total_calculations: int = Field(
+        ...,
+        description="Number of calculations the user has saved",
+        example=12
+    )
+    average_operands: float = Field(
+        ...,
+        description="Mean number of inputs per calculation, rounded to two decimals",
+        example=2.42
+    )
+    counts_by_type: Dict[CalculationType, int] = Field(
+        ...,
+        description="Number of calculations of each supported type, including unused types"
+    )
+    most_used_type: Optional[CalculationType] = Field(
+        None,
+        description="The most frequently used calculation type, or null if there are none",
+        example="addition"
+    )
+    last_calculation_at: Optional[datetime] = Field(
+        None,
+        description="When the most recent calculation was created, or null if there are none"
+    )
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "total_calculations": 12,
+                "average_operands": 2.42,
+                "counts_by_type": {
+                    "addition": 6,
+                    "subtraction": 3,
+                    "multiplication": 2,
+                    "division": 1
+                },
+                "most_used_type": "addition",
+                "last_calculation_at": "2025-01-01T00:00:00"
+            }
+        }
     )
 
 class CalculationResponse(CalculationBase):
