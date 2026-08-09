@@ -1,3 +1,4 @@
+import os
 import socket
 import subprocess
 import sys
@@ -16,7 +17,6 @@ from playwright.sync_api import sync_playwright, Browser, Page
 from app.database import Base, get_engine, get_sessionmaker
 from app.models.user import User
 from app.core.config import settings
-from app.database_init import init_db, drop_db
 
 # ======================================================================================
 # Logging Configuration
@@ -33,7 +33,18 @@ logger = logging.getLogger(__name__)
 fake = Faker()
 Faker.seed(12345)
 
-test_engine = get_engine(database_url=settings.DATABASE_URL)
+# The suite drops and recreates every table on each run, so it must never be
+# pointed at the database the application is developed against. This is checked
+# before anything connects: pointing both names at one database would silently
+# destroy that data the next time the tests run.
+if settings.TEST_DATABASE_URL == settings.DATABASE_URL:
+    raise RuntimeError(
+        "TEST_DATABASE_URL must not be the same database as DATABASE_URL. "
+        "The test suite drops every table in TEST_DATABASE_URL "
+        f"({settings.TEST_DATABASE_URL})."
+    )
+
+test_engine = get_engine(database_url=settings.TEST_DATABASE_URL)
 TestingSessionLocal = get_sessionmaker(engine=test_engine)
 
 # ======================================================================================
@@ -93,11 +104,10 @@ def setup_test_database(request):
     Set up the test database before the session starts, and tear it down after tests
     unless --preserve-db is provided.
     """
-    logger.info("Setting up test database...")
+    logger.info(f"Setting up test database at {test_engine.url}...")
     try:
         Base.metadata.drop_all(bind=test_engine)
         Base.metadata.create_all(bind=test_engine)
-        init_db()
         logger.info("Test database initialized.")
     except Exception as e:
         logger.error(f"Error setting up test database: {str(e)}")
@@ -107,7 +117,7 @@ def setup_test_database(request):
 
     if not request.config.getoption("--preserve-db"):
         logger.info("Dropping test database tables...")
-        drop_db()
+        Base.metadata.drop_all(bind=test_engine)
 
 @pytest.fixture
 def db_session() -> Generator[Session, None, None]:
@@ -186,12 +196,18 @@ def fastapi_server():
 
     logger.info(f"Starting FastAPI server on port {base_port}...")
 
+    # The server is a separate process and reads its own settings, so it is told
+    # to use the test database too. Without this the browser tests would write
+    # into whatever DATABASE_URL points at, usually the development database.
+    server_env = {**os.environ, "DATABASE_URL": settings.TEST_DATABASE_URL}
+
     process = subprocess.Popen(
         [sys.executable, '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', str(base_port)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        cwd='.'  # ensure the working directory is set correctly
+        cwd='.',  # ensure the working directory is set correctly
+        env=server_env
     )
 
     # IMPORTANT: Use the /health endpoint for the check!

@@ -15,7 +15,7 @@ jobs:
         env:
           POSTGRES_USER: user
           POSTGRES_PASSWORD: password
-          POSTGRES_DB: mytestdb  # <-- Dedicated test DB name
+          POSTGRES_DB: fastapi_db  # the application database; the test one is created below
         ports:
           - 5432:5432
         options: >-
@@ -38,8 +38,6 @@ jobs:
             ${{ runner.os }}-pip-
       
       - name: Install dependencies
-        env:
-          DATABASE_URL: postgresql://user:password@localhost:5432/mytestdb
         run: |
           python -m venv venv
           source venv/bin/activate
@@ -47,9 +45,18 @@ jobs:
           pip install -r requirements.txt
           playwright install --with-deps chromium  # browser + system libs for e2e tests
 
+      # The suite drops every table in TEST_DATABASE_URL, so it needs a database
+      # of its own. Locally this is done by init-db.sh when the postgres volume
+      # is first initialized; the service container above does not run it.
+      - name: Create the test database
+        env:
+          PGPASSWORD: password
+        run: psql -h localhost -U user -d fastapi_db -c 'CREATE DATABASE fastapi_test_db;'
+
       - name: Run tests
         env:
-          DATABASE_URL: postgresql://user:password@localhost:5432/mytestdb
+          DATABASE_URL: postgresql://user:password@localhost:5432/fastapi_db
+          TEST_DATABASE_URL: postgresql://user:password@localhost:5432/fastapi_test_db
         run: |
           source venv/bin/activate
 

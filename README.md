@@ -151,12 +151,16 @@ Interactive API documentation is available at:
 ## Running the Tests
 
 All test commands assume the virtual environment is active and PostgreSQL is
-running. Point `DATABASE_URL` at the **test** database — the suite drops and
-recreates its tables on every run:
+running.
 
-```bash
-export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/fastapi_test_db"
-```
+The suite uses its own database, `TEST_DATABASE_URL`, which defaults to
+`fastapi_test_db`. Nothing needs to be exported: the tests never touch
+`DATABASE_URL`, so the application's data is safe to leave in place.
+
+> **The test database is wiped on every run.** Every table in
+> `TEST_DATABASE_URL` is dropped at the start of a run and again at the end. If
+> `TEST_DATABASE_URL` and `DATABASE_URL` name the same database, the suite
+> refuses to start rather than destroy the application's data.
 
 ### Everything
 
@@ -353,6 +357,7 @@ Settings are read from environment variables (or a `.env` file) by
 | Variable                      | Default                                                    |
 | ----------------------------- | ---------------------------------------------------------- |
 | `DATABASE_URL`                | `postgresql://postgres:postgres@localhost:5432/fastapi_db` |
+| `TEST_DATABASE_URL`           | `postgresql://postgres:postgres@localhost:5432/fastapi_test_db` — wiped by the test suite |
 | `JWT_SECRET_KEY`              | development placeholder — **override in production**        |
 | `JWT_REFRESH_SECRET_KEY`      | development placeholder — **override in production**        |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30`                                                        |
