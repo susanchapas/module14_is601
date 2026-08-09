@@ -5,6 +5,35 @@ from uuid import UUID
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
 
+SPECIAL_CHARACTERS = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+def validate_password_strength(password: str) -> str:
+    """
+    Check a plain-text password against the application's strength rules.
+
+    Shared by registration and password changes so both enforce the same policy.
+
+    Args:
+        password: The plain-text password to check
+
+    Returns:
+        str: The password, unchanged, when it satisfies every rule
+
+    Raises:
+        ValueError: If the password fails any strength requirement
+    """
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters long")
+    if not any(char.isupper() for char in password):
+        raise ValueError("Password must contain at least one uppercase letter")
+    if not any(char.islower() for char in password):
+        raise ValueError("Password must contain at least one lowercase letter")
+    if not any(char.isdigit() for char in password):
+        raise ValueError("Password must contain at least one digit")
+    if not any(char in SPECIAL_CHARACTERS for char in password):
+        raise ValueError("Password must contain at least one special character")
+    return password
+
 class UserBase(BaseModel):
     """Base user schema with common fields"""
     first_name: str = Field(
@@ -57,17 +86,7 @@ class UserCreate(UserBase):
     @model_validator(mode='after')
     def validate_password_strength(self) -> "UserCreate":
         """Validate password strength requirements"""
-        password = self.password
-        if len(password) < 8:
-            raise ValueError("Password must be at least 8 characters long")
-        if not any(char.isupper() for char in password):
-            raise ValueError("Password must contain at least one uppercase letter")
-        if not any(char.islower() for char in password):
-            raise ValueError("Password must contain at least one lowercase letter")
-        if not any(char.isdigit() for char in password):
-            raise ValueError("Password must contain at least one digit")
-        if not any(char in "!@#$%^&*()_+-=[]{}|;:,.<>?" for char in password):
-            raise ValueError("Password must contain at least one special character")
+        validate_password_strength(self.password)
         return self
 
     model_config = ConfigDict(
@@ -152,6 +171,13 @@ class UserUpdate(BaseModel):
         description="User's unique username"
     )
 
+    @model_validator(mode='after')
+    def verify_at_least_one_field(self) -> "UserUpdate":
+        """Reject an update that would change nothing"""
+        if not self.model_dump(exclude_none=True):
+            raise ValueError("At least one field must be provided")
+        return self
+
     model_config = ConfigDict(from_attributes=True)
 
 class PasswordUpdate(BaseModel):
@@ -180,11 +206,12 @@ class PasswordUpdate(BaseModel):
 
     @model_validator(mode='after')
     def verify_passwords(self) -> "PasswordUpdate":
-        """Verify that new password and confirmation match"""
+        """Verify that the new password matches its confirmation and is strong enough"""
         if self.new_password != self.confirm_new_password:
             raise ValueError("New password and confirmation do not match")
         if self.current_password == self.new_password:
             raise ValueError("New password must be different from current password")
+        validate_password_strength(self.new_password)
         return self
 
     model_config = ConfigDict(

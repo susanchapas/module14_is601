@@ -1,0 +1,390 @@
+{% extends "layout.html" %}
+{% block title %}My Profile{% endblock %}
+
+{% block content %}
+<!-- Error/Success Alerts -->
+<div
+  id="errorAlert"
+  class="hidden bg-red-100 border border-red-500 text-red-800
+         px-4 py-3 rounded-md mb-4 transition-all duration-300"
+>
+  <div class="flex items-center">
+    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+    </svg>
+    <span id="errorMessage" class="block sm:inline"></span>
+  </div>
+</div>
+<div
+  id="successAlert"
+  class="hidden bg-green-100 border border-green-500 text-green-800
+         px-4 py-3 rounded-md mb-4 transition-all duration-300"
+>
+  <div class="flex items-center">
+    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+    </svg>
+    <span id="successMessage" class="block sm:inline"></span>
+  </div>
+</div>
+
+<!-- Breadcrumb Navigation -->
+<nav class="flex mb-4" aria-label="Breadcrumb">
+  <ol class="inline-flex items-center space-x-1 md:space-x-3">
+    <li class="inline-flex items-center">
+      <a href="/dashboard" class="text-gray-700 hover:text-blue-700 inline-flex items-center">
+        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+        </svg>
+        Dashboard
+      </a>
+    </li>
+    <li>
+      <div class="flex items-center">
+        <svg class="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+        </svg>
+        <span class="text-gray-500 ml-1 md:ml-2 font-medium">My Profile</span>
+      </div>
+    </li>
+  </ol>
+</nav>
+
+<!-- Loading State -->
+<div id="loadingState" class="bg-white shadow-lg rounded-lg p-6 flex justify-center items-center min-h-[300px]">
+  <div class="flex flex-col items-center">
+    <svg class="animate-spin h-10 w-10 text-blue-700 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+    <p class="text-gray-600">Loading profile...</p>
+  </div>
+</div>
+
+<!-- Profile Details Card -->
+<div id="profileCard" class="hidden bg-white shadow-lg rounded-lg border border-gray-100 mb-6">
+  <div class="bg-gray-50 rounded-t-lg px-6 py-4 border-b border-gray-100">
+    <h2 class="text-xl font-bold text-gray-800 flex items-center">
+      <svg class="w-5 h-5 mr-2 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+      </svg>
+      Account Details
+    </h2>
+  </div>
+
+  <div class="p-6">
+    <form id="profileForm" class="space-y-5">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div>
+          <label for="username" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            minlength="3"
+            maxlength="50"
+            required
+            class="block w-full rounded-md border-gray-300 shadow-sm
+                   focus:border-blue-500 focus:ring-blue-500 py-2"
+          />
+        </div>
+        <div>
+          <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            required
+            class="block w-full rounded-md border-gray-300 shadow-sm
+                   focus:border-blue-500 focus:ring-blue-500 py-2"
+          />
+        </div>
+        <div>
+          <label for="first_name" class="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+          <input
+            type="text"
+            id="first_name"
+            name="first_name"
+            minlength="1"
+            maxlength="50"
+            required
+            class="block w-full rounded-md border-gray-300 shadow-sm
+                   focus:border-blue-500 focus:ring-blue-500 py-2"
+          />
+        </div>
+        <div>
+          <label for="last_name" class="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+          <input
+            type="text"
+            id="last_name"
+            name="last_name"
+            minlength="1"
+            maxlength="50"
+            required
+            class="block w-full rounded-md border-gray-300 shadow-sm
+                   focus:border-blue-500 focus:ring-blue-500 py-2"
+          />
+        </div>
+      </div>
+
+      <div class="pt-2">
+        <button
+          type="submit"
+          class="bg-blue-700 text-white px-6 py-2 rounded-md hover:bg-blue-800 transition-colors duration-200
+                 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 font-medium flex items-center"
+        >
+          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          </svg>
+          Save Profile
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Change Password Card -->
+<div id="passwordCard" class="hidden bg-white shadow-lg rounded-lg border border-gray-100">
+  <div class="bg-gray-50 rounded-t-lg px-6 py-4 border-b border-gray-100">
+    <h2 class="text-xl font-bold text-gray-800 flex items-center">
+      <svg class="w-5 h-5 mr-2 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+      </svg>
+      Change Password
+    </h2>
+  </div>
+
+  <div class="p-6">
+    <form id="passwordForm" class="space-y-5">
+      <div>
+        <label for="current_password" class="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+        <input
+          type="password"
+          id="current_password"
+          name="current_password"
+          required
+          class="block w-full rounded-md border-gray-300 shadow-sm
+                 focus:border-blue-500 focus:ring-blue-500 py-2"
+        />
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div>
+          <label for="new_password" class="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+          <input
+            type="password"
+            id="new_password"
+            name="new_password"
+            required
+            class="block w-full rounded-md border-gray-300 shadow-sm
+                   focus:border-blue-500 focus:ring-blue-500 py-2"
+          />
+          <p id="passwordHelp" class="text-sm text-gray-500 mt-1">
+            At least 8 characters, with an uppercase letter, a lowercase letter, a digit and a special character.
+          </p>
+        </div>
+        <div>
+          <label for="confirm_new_password" class="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+          <input
+            type="password"
+            id="confirm_new_password"
+            name="confirm_new_password"
+            required
+            class="block w-full rounded-md border-gray-300 shadow-sm
+                   focus:border-blue-500 focus:ring-blue-500 py-2"
+          />
+        </div>
+      </div>
+
+      <div class="pt-2">
+        <button
+          type="submit"
+          class="bg-blue-700 text-white px-6 py-2 rounded-md hover:bg-blue-800 transition-colors duration-200
+                 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 font-medium flex items-center"
+        >
+          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+          </svg>
+          Update Password
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  const token = localStorage.getItem('access_token');
+  if (!token) {
+    window.location.href = '/login';
+    return;
+  }
+
+  function showError(message) {
+    const errorAlert = document.getElementById('errorAlert');
+    document.getElementById('errorMessage').textContent = message;
+    errorAlert.classList.remove('hidden');
+    errorAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function showSuccess(message) {
+    const successAlert = document.getElementById('successAlert');
+    document.getElementById('successMessage').textContent = message;
+    successAlert.classList.remove('hidden');
+    successAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function clearAlerts() {
+    document.getElementById('errorAlert').classList.add('hidden');
+    document.getElementById('successAlert').classList.add('hidden');
+  }
+
+  // A 401 anywhere means the session is no longer usable.
+  function handleUnauthorized() {
+    localStorage.clear();
+    window.location.href = '/login';
+  }
+
+  async function loadProfile() {
+    try {
+      const response = await fetch('/users/me', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        throw new Error('Failed to load profile');
+      }
+
+      const user = await response.json();
+      document.getElementById('username').value = user.username;
+      document.getElementById('email').value = user.email;
+      document.getElementById('first_name').value = user.first_name;
+      document.getElementById('last_name').value = user.last_name;
+
+      localStorage.setItem('username', user.username);
+      const welcomeElement = document.getElementById('layoutUserWelcome');
+      if (welcomeElement) welcomeElement.textContent = `Welcome, ${user.username}!`;
+
+      document.getElementById('loadingState').classList.add('hidden');
+      document.getElementById('profileCard').classList.remove('hidden');
+      document.getElementById('passwordCard').classList.remove('hidden');
+    } catch (error) {
+      document.getElementById('loadingState').classList.add('hidden');
+      showError(error.message || 'Failed to load profile');
+    }
+  }
+
+  document.getElementById('profileForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearAlerts();
+
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    const originalButtonContent = submitButton.innerHTML;
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Saving...';
+
+    try {
+      const response = await fetch('/users/me', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          username: document.getElementById('username').value.trim(),
+          email: document.getElementById('email').value.trim(),
+          first_name: document.getElementById('first_name').value.trim(),
+          last_name: document.getElementById('last_name').value.trim()
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(window.extractErrorMessage(errorData, 'Failed to update profile'));
+      }
+
+      const user = await response.json();
+      localStorage.setItem('username', user.username);
+      const welcomeElement = document.getElementById('layoutUserWelcome');
+      if (welcomeElement) welcomeElement.textContent = `Welcome, ${user.username}!`;
+
+      showSuccess('Profile updated successfully');
+    } catch (error) {
+      showError(error.message || 'Failed to update profile');
+    } finally {
+      submitButton.disabled = false;
+      submitButton.innerHTML = originalButtonContent;
+    }
+  });
+
+  document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearAlerts();
+
+    const currentPassword = document.getElementById('current_password').value;
+    const newPassword = document.getElementById('new_password').value;
+    const confirmNewPassword = document.getElementById('confirm_new_password').value;
+
+    if (newPassword !== confirmNewPassword) {
+      showError('New password and confirmation do not match');
+      return;
+    }
+
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    const originalButtonContent = submitButton.innerHTML;
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Updating...';
+
+    try {
+      const response = await fetch('/users/me/password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+          confirm_new_password: confirmNewPassword
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(window.extractErrorMessage(errorData, 'Failed to update password'));
+      }
+
+      document.getElementById('passwordForm').reset();
+      showSuccess('Password updated successfully. Please log in again.');
+
+      // The stored credentials are for the old password; force a fresh login.
+      setTimeout(() => {
+        localStorage.clear();
+        window.location.href = '/login';
+      }, 2000);
+    } catch (error) {
+      showError(error.message || 'Failed to update password');
+    } finally {
+      submitButton.disabled = false;
+      submitButton.innerHTML = originalButtonContent;
+    }
+  });
+
+  loadProfile();
+});
+</script>
+{% endblock %}

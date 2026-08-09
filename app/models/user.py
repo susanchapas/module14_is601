@@ -160,6 +160,71 @@ class User(Base):
         from app.auth.jwt import get_password_hash
         return get_password_hash(password)
 
+    def update_profile(self, db, **fields):
+        """
+        Update this user's profile fields, keeping username and email unique.
+
+        Fields passed as None are ignored, so a partial update only touches what
+        the caller actually supplied.
+
+        Args:
+            db: SQLAlchemy database session
+            **fields: Any of username, email, first_name, last_name
+
+        Returns:
+            User: This user instance, updated
+
+        Raises:
+            ValueError: If an unknown field is supplied, or if the new username
+                or email is already taken by another user
+        """
+        allowed = {"username", "email", "first_name", "last_name"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise ValueError(f"Cannot update field(s): {', '.join(sorted(unknown))}")
+
+        updates = {key: value for key, value in fields.items() if value is not None}
+        if not updates:
+            return self
+
+        conflicts = [
+            getattr(type(self), key) == value
+            for key, value in updates.items()
+            if key in ("username", "email")
+        ]
+        if conflicts:
+            taken = db.query(type(self)).filter(
+                or_(*conflicts), type(self).id != self.id
+            ).first()
+            if taken:
+                raise ValueError("Username or email already exists")
+
+        return self.update(**updates)
+
+    def change_password(self, current_password: str, new_password: str):
+        """
+        Replace this user's password after verifying the current one.
+
+        The new password is stored hashed, never in plain text.
+
+        Args:
+            current_password: The user's existing plain-text password
+            new_password: The plain-text password to store
+
+        Returns:
+            User: This user instance, with the new password hash
+
+        Raises:
+            ValueError: If the current password is wrong, or the new password is
+                the same as the current one
+        """
+        if not self.verify_password(current_password):
+            raise ValueError("Current password is incorrect")
+        if current_password == new_password:
+            raise ValueError("New password must be different from current password")
+
+        return self.update(password=self.hash_password(new_password))
+
     @classmethod
     def register(cls, db, user_data: dict):
         """

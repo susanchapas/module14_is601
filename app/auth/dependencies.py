@@ -2,6 +2,8 @@ from datetime import datetime
 from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
+from app.database import get_db
 from app.schemas.user import UserResponse
 from app.models.user import User
 
@@ -79,3 +81,22 @@ def get_current_active_user(
             detail="Inactive user"
         )
     return current_user
+
+def get_current_user_record(
+    current_user: UserResponse = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Dependency to load the current user's database record.
+
+    get_current_user builds its UserResponse from the token alone, so the only
+    field it can be trusted for is the id. Endpoints that read or write stored
+    profile data need the real row instead.
+    """
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user

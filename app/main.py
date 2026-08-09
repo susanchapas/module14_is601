@@ -32,12 +32,12 @@ from sqlalchemy.orm import Session  # SQLAlchemy database session
 import uvicorn  # ASGI server for running FastAPI apps
 
 # Application imports
-from app.auth.dependencies import get_current_active_user  # Authentication dependency
+from app.auth.dependencies import get_current_active_user, get_current_user_record  # Authentication dependencies
 from app.models.calculation import Calculation  # Database model for calculations
 from app.models.user import User  # Database model for users
 from app.schemas.calculation import CalculationBase, CalculationResponse, CalculationUpdate  # API request/response schemas
 from app.schemas.token import TokenResponse  # API token schema
-from app.schemas.user import UserCreate, UserResponse, UserLogin  # User schemas
+from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate, PasswordUpdate  # User schemas
 from app.database import Base, get_db, engine  # Database connection
 
 
@@ -126,6 +126,15 @@ def dashboard_page(request: Request):
     JavaScript in this page calls the API endpoints to fetch and display data.
     """
     return templates.TemplateResponse(request, "dashboard.html")
+
+@app.get("/profile", response_class=HTMLResponse, tags=["web"])
+def profile_page(request: Request):
+    """
+    Profile page, for editing account details and changing the password.
+
+    JavaScript in this page calls the /users/me endpoints to load and save data.
+    """
+    return templates.TemplateResponse(request, "profile.html")
 
 @app.get("/dashboard/view/{calc_id}", response_class=HTMLResponse, tags=["web"])
 def view_calculation_page(request: Request, calc_id: str):
@@ -254,6 +263,62 @@ def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
         "access_token": auth_result["access_token"],
         "token_type": "bearer"
     }
+
+
+# ------------------------------------------------------------------------------
+# User Profile Endpoints
+# ------------------------------------------------------------------------------
+@app.get("/users/me", response_model=UserResponse, tags=["users"])
+def read_profile(current_user: User = Depends(get_current_user_record)):
+    """
+    Return the authenticated user's stored profile.
+    """
+    return current_user
+
+
+@app.put("/users/me", response_model=UserResponse, tags=["users"])
+def update_profile(
+    user_update: UserUpdate,
+    current_user: User = Depends(get_current_user_record),
+    db: Session = Depends(get_db)
+):
+    """
+    Update the authenticated user's profile (username, email, first/last name).
+
+    Only the fields present in the request body are changed.
+    """
+    try:
+        current_user.update_profile(db, **user_update.model_dump(exclude_none=True))
+        db.commit()
+        db.refresh(current_user)
+        return current_user
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.post("/users/me/password", tags=["users"])
+def change_password(
+    password_update: PasswordUpdate,
+    current_user: User = Depends(get_current_user_record),
+    db: Session = Depends(get_db)
+):
+    """
+    Change the authenticated user's password.
+
+    The current password must be supplied and correct; the new one is stored as
+    a hash.
+    """
+    try:
+        current_user.change_password(
+            password_update.current_password,
+            password_update.new_password
+        )
+        db.commit()
+        return {"message": "Password updated successfully"}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # ------------------------------------------------------------------------------
