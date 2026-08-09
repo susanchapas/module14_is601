@@ -79,7 +79,7 @@
           </div>
           <div class="mt-1">
             <p class="text-xs text-gray-500">
-              Must be at least 8 characters and include uppercase, lowercase, and numbers
+              Must be at least 8 characters and include uppercase, lowercase, a number, and a special character
             </p>
           </div>
         </div>
@@ -167,7 +167,8 @@ document.addEventListener('DOMContentLoaded', function() {
         return password.length >= 8 && // at least 8 characters
                /[A-Z]/.test(password) && // at least one uppercase
                /[a-z]/.test(password) && // at least one lowercase
-               /[0-9]/.test(password); // at least one number
+               /[0-9]/.test(password) && // at least one number
+               /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password); // at least one special character
     }
     
     // Helper function to add validation styling
@@ -220,7 +221,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (!isValidPassword(formData.password)) {
             setInputValidation(form.password, false);
-            if (!hasErrors) showError('Password must be at least 8 characters long and contain uppercase, lowercase, and numbers');
+            if (!hasErrors) showError('Password must be at least 8 characters long and contain uppercase, lowercase, a number, and a special character');
             hasErrors = true;
         }
 
@@ -251,7 +252,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.detail || 'Registration failed');
+                throw new Error(window.extractErrorMessage(data, 'Registration failed'));
             }
 
             // Show success message

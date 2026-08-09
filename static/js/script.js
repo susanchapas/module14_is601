@@ -62,10 +62,12 @@ window.extractErrorMessage = function (data, fallback) {
   }
 
   if (Array.isArray(detail) && detail.length > 0) {
-    const messages = detail
-      .map((item) => (item && item.msg ? item.msg : null))
-      .filter(Boolean)
-      .map((msg) => msg.replace(/^Value error,\s*/, ''));
+    const messages = [...new Set(
+      detail
+        .map((item) => (item && item.msg ? item.msg : null))
+        .filter(Boolean)
+        .map((msg) => msg.replace(/^Value error,\s*/, ''))
+    )];
     if (messages.length > 0) {
       return messages.join('; ');
     }
