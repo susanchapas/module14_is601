@@ -1,0 +1,28 @@
+target-version = "py310"
+
+[lint]
+# F catches the unused and duplicate imports that motivated adding a linter;
+# I keeps import blocks ordered; B catches real bugs.
+#
+# UP (pyupgrade) is deliberately not selected. Its only findings here are
+# rewrites of typing.List/Optional into PEP 585/604 form, which is style, not
+# correctness, and the schema modules it would rewrite are mirrored verbatim in
+# docs/03-schema-validation.md.
+select = ["E", "F", "I", "B"]
+
+# Line length is not enforced: the schemas and docstrings are deliberately
+# verbose for teaching purposes, and reflowing them is not a lint concern.
+ignore = ["E501"]
+
+[lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom is a function call in a default
+# argument, which is exactly what B008 flags. It is correct here.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Form",
+    "fastapi.File",
+]

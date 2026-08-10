@@ -5,11 +5,11 @@
 #          Relies on 'conftest.py' for database session management and test isolation.
 # ======================================================================================
 
-import pytest
 import logging
+
+import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
 
 from app.models.user import User
 from tests.conftest import create_fake_user, managed_db_session
@@ -302,7 +302,7 @@ def test_user_persistence_after_constraint(db_session):
         )
         db_session.add(duplicate_user)
         db_session.commit()
-        assert False, "Should have raised IntegrityError"
+        pytest.fail("Should have raised IntegrityError")
     except IntegrityError:
         db_session.rollback()
     

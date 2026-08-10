@@ -45,6 +45,11 @@ jobs:
           pip install -r requirements.txt
           playwright install --with-deps chromium  # browser + system libs for e2e tests
 
+      - name: Lint
+        run: |
+          source venv/bin/activate
+          ruff check .
+
       # The suite drops every table in TEST_DATABASE_URL, so it needs a database
       # of its own. Locally this is done by init-db.sh when the postgres volume
       # is first initialized; the service container above does not run it.
@@ -57,21 +62,25 @@ jobs:
         env:
           DATABASE_URL: postgresql://user:password@localhost:5432/fastapi_db
           TEST_DATABASE_URL: postgresql://user:password@localhost:5432/fastapi_test_db
+          # Throwaway CI values. The app has no defaults for these on purpose,
+          # so they must be supplied here for it to start at all.
+          JWT_SECRET_KEY: ci-test-only-secret-key-not-used-anywhere-else
+          JWT_REFRESH_SECRET_KEY: ci-test-only-refresh-key-not-used-anywhere-else
         run: |
           source venv/bin/activate
 
-          # Coverage is configured in pytest.ini (--cov=app --cov-report=term-missing).
-          # The HTML report is requested here rather than in pytest.ini so that a
-          # local single-test run does not regenerate htmlcov/.
-
-          # 1) Unit tests
-          pytest tests/unit/ --junitxml=test-results/junit.xml
-
-          # 2) Integration tests
-          pytest tests/integration/
-
-          # 3) E2E tests (API + Playwright browser tests)
-          pytest tests/e2e/ --cov-report=html
+          # One run over the whole suite, so the coverage report covers all of
+          # it. Running unit/integration/e2e as three separate pytest
+          # invocations made each pass overwrite the previous coverage data,
+          # leaving only the e2e numbers.
+          #
+          # Coverage is configured in pytest.ini (--cov=app --cov-report=term-missing);
+          # the xml and html reports are requested here rather than in pytest.ini
+          # so that a local single-test run does not regenerate them.
+          pytest tests/ \
+            --junitxml=test-results/junit.xml \
+            --cov-report=xml \
+            --cov-report=html
 
   security:
     needs: test

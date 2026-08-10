@@ -1,6 +1,8 @@
 # app/config.py
 from functools import lru_cache
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     # Database settings (keeping your existing default)
@@ -13,8 +15,12 @@ class Settings(BaseSettings):
     TEST_DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/fastapi_test_db"
 
     # JWT Settings
-    JWT_SECRET_KEY: str = "your-super-secret-key-change-this-in-production"
-    JWT_REFRESH_SECRET_KEY: str = "your-refresh-secret-key-change-this-in-production"
+    #
+    # Deliberately no defaults: a missing value must fail loudly at startup
+    # rather than yield a working app signed with a public, well-known key.
+    # See .env.example for how to supply them.
+    JWT_SECRET_KEY: str
+    JWT_REFRESH_SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7

@@ -17,6 +17,7 @@ front end, and a CI/CD pipeline that tests, scans, and publishes a Docker image.
 - [Local Development Setup](#local-development-setup)
 - [Running the Application](#running-the-application)
 - [Running the Tests](#running-the-tests)
+- [Linting](#linting)
 - [BREAD API Reference](#bread-api-reference)
 - [Front-End Pages](#front-end-pages)
 - [Validation Rules](#validation-rules)
@@ -173,7 +174,7 @@ pytest
 ### By category
 
 ```bash
-pytest tests/unit/           # Pure calculator logic and client-side validators
+pytest tests/unit/           # Stats aggregation, client-side validators, profile logic
 pytest tests/integration/    # Models, schemas, routes, database, auth
 pytest tests/e2e/            # API + Playwright browser tests
 ```
@@ -194,11 +195,62 @@ pytest tests/e2e/test_calculations_bread_e2e.py
 | `-m e2e`            | Run only end-to-end tests                         |
 | `-k <expr>`         | Run tests matching an expression                  |
 
-Coverage is enabled by default via `pytest.ini` and writes an HTML report to
-`htmlcov/index.html`.
+Coverage is enabled by default via `pytest.ini`, which prints a
+`term-missing` report. The HTML and XML reports are *not* on by default, so a
+single-test run does not regenerate them; ask for them explicitly:
+
+```bash
+pytest --cov-report=html   # writes htmlcov/index.html
+pytest --cov-report=xml    # writes coverage.xml
+```
+
+CI runs the whole suite in one `pytest tests/` invocation. Running unit,
+integration and e2e as three separate invocations would make each pass
+overwrite the previous coverage data, leaving only the last one's numbers.
 
 The test suite starts its own Uvicorn server on a free port, so you do **not**
 need the app running separately.
+
+### Deprecation warnings are errors
+
+`pytest.ini` sets `error::DeprecationWarning`, so a deprecated call in
+first-party code fails the test that reaches it rather than scrolling past in a
+warnings summary. Third-party noise gets a narrow, specific `ignore` line — not
+a blanket one.
+
+One caveat worth knowing: the e2e tests drive a Uvicorn **subprocess**, which
+runs outside pytest's warning filters. Code paths exercised only through e2e
+tests are therefore not covered by this guard.
+
+---
+
+## Linting
+
+[`ruff`](https://docs.astral.sh/ruff/) is configured in [`ruff.toml`](ruff.toml)
+and runs in CI before the tests:
+
+```bash
+ruff check .          # report
+ruff check . --fix    # apply the safe fixes
+```
+
+The selected rule sets are `E`, `F`, `I` and `B`. `F` is the one that pays for
+itself — it catches unused and duplicated imports, which is what motivated
+adding a linter here.
+
+Two configuration notes:
+
+- **`B008` is exempted for FastAPI.** Bugbear flags function calls in default
+  arguments, and `Depends()` is exactly that. The exemption list in `ruff.toml`
+  covers `Depends`, `Query`, `Path`, `Body`, `Header`, `Form` and `File`.
+- **`UP` (pyupgrade) is not selected.** Its only findings in this codebase are
+  `typing.List`/`Optional` rewrites — style, not correctness — and the schema
+  modules it would rewrite are quoted verbatim in the course docs.
+
+Beware one autofix in particular: `F401` will happily delete an import that
+exists for its side effect. `app/models/user.py` imports `Calculation` so that
+SQLAlchemy can resolve the `relationship("Calculation")` string, and it carries
+a `# noqa: F401` with an explanation for that reason.
 
 ---
 
@@ -344,7 +396,8 @@ Defined in [`.github/workflows/test.yml`](.github/workflows/test.yml), triggered
 push and pull request to `main`:
 
 1. **test** — spins up a PostgreSQL service, installs dependencies and the
-   Playwright browser, then runs the unit, integration, and end-to-end suites.
+   Playwright browser, runs `ruff check .`, then runs the whole suite in a
+   single `pytest tests/` invocation and emits one coverage report.
 2. **security** — builds the Docker image and scans it with Trivy, failing on
    `CRITICAL` or `HIGH` vulnerabilities.
 3. **deploy** — on `main` only, builds a multi-arch image and pushes it to
@@ -370,11 +423,27 @@ Settings are read from environment variables (or a `.env` file) by
 | ----------------------------- | ---------------------------------------------------------- |
 | `DATABASE_URL`                | `postgresql://postgres:postgres@localhost:5432/fastapi_db` |
 | `TEST_DATABASE_URL`           | `postgresql://postgres:postgres@localhost:5432/fastapi_test_db` — wiped by the test suite |
-| `JWT_SECRET_KEY`              | development placeholder — **override in production**        |
-| `JWT_REFRESH_SECRET_KEY`      | development placeholder — **override in production**        |
+| `JWT_SECRET_KEY`              | **required — no default; the app will not start without it** |
+| `JWT_REFRESH_SECRET_KEY`      | **required — no default; the app will not start without it** |
+| `ALGORITHM`                   | `HS256`                                                     |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30`                                                        |
 | `REFRESH_TOKEN_EXPIRE_DAYS`   | `7`                                                         |
 | `BCRYPT_ROUNDS`               | `12`                                                        |
+
+The two JWT secrets deliberately have no defaults. A default would mean a
+missing environment variable produces a working app that signs its tokens with
+a value published in this repository, which is worse than a startup failure.
+Without them, `Settings` raises a `ValidationError` naming the missing keys.
+
+Copy [`.env.example`](.env.example) to get started — it documents every
+variable above:
+
+```bash
+cp .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(32))"   # for each key
+```
+
+`.env` is gitignored.
 
 ---
 

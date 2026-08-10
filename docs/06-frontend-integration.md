@@ -42,9 +42,15 @@ Let's create a base layout template that all other templates will extend:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Calculator App{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
-    <script src="{{ url_for('static', path='/js/script.js') }}" defer></script>
+    <title>{% block title %}Calculations App{% endblock %}</title>
+
+    <!-- Tailwind is the whole stylesheet; there is no static/css/style.css -->
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     {% block head %}{% endblock %}
 </head>
 <body>
@@ -68,6 +74,10 @@ Let's create a base layout template that all other templates will extend:
     <main>
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Loaded before any page-specific block, so templates can call apiFetch,
+         showToast and the validation helpers directly. -->
+    <script src="{{ url_for('static', path='js/script.js') }}"></script>
     
     <footer>
         <p>&copy; 2023 Calculator App - A FastAPI Project</p>
@@ -392,582 +402,253 @@ Now, let's create templates for each page in our application:
 </section>
 
 <script>
-    // Check if user is logged in
     document.addEventListener('DOMContentLoaded', async function() {
-        const token = localStorage.getItem('access_token');
-        if (!token) {
-            window.location.href = '/login';
-            return;
-        }
-        
-        // Load user's calculations
+        // Bounce straight to /login if there is no stored token
+        if (!requireLogin()) return;
+
         loadCalculations();
-        
-        // Handle new calculation form
+
         document.getElementById('calculation-form').addEventListener('submit', async function(e) {
             e.preventDefault();
-            
+
             const type = document.getElementById('calculation-type').value;
-            const inputsString = document.getElementById('calculation-inputs').value;
-            const inputs = inputsString.split(',').map(num => parseFloat(num.trim()));
-            
+            const raw = document.getElementById('calculation-inputs').value;
+
+            // Shared validation, so the page rejects what the API would reject
+            const inputs = validateCalculationInputs(raw, type);
+            if (!inputs) return;
+
             try {
-                const response = await fetch('/calculations', {
+                const response = await apiFetch('/calculations', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                        type: type,
-                        inputs: inputs
-                    })
+                    body: JSON.stringify({ type, inputs })
                 });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    
-                    // Display result
-                    document.getElementById('result-value').textContent = data.result;
-                    document.getElementById('calculation-result').style.display = 'block';
-                    
-                    // Reload calculations list
-                    loadCalculations();
-                } else {
-                    const error = await response.json();
-                    alert(`Error: ${error.detail || 'Something went wrong'}`);
+                if (!response) return;   // 401 handled; page is unloading
+
+                const data = await response.json();
+                if (!response.ok) {
+                    showToast(extractErrorMessage(data, 'Something went wrong'), 'error');
+                    return;
                 }
+
+                document.getElementById('result-value').textContent = data.result;
+                document.getElementById('calculation-result').style.display = 'block';
+                loadCalculations();
             } catch (error) {
                 console.error('Calculation error:', error);
-                alert('An error occurred. Please try again.');
+                showToast('An error occurred. Please try again.', 'error');
             }
         });
     });
-    
+
     async function loadCalculations() {
-        const token = localStorage.getItem('access_token');
         const container = document.getElementById('calculations-container');
-        
+
         try {
-            const response = await fetch('/calculations', {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            
-            if (response.ok) {
-                const calculations = await response.json();
-                
-                if (calculations.length === 0) {
-                    container.innerHTML = '<p>No calculations yet. Create your first one!</p>';
-                    return;
-                }
-                
-                let html = '<div class="calculations-grid">';
-                
-                calculations.forEach(calc => {
-                    const date = new Date(calc.created_at).toLocaleDateString();
-                    const time = new Date(calc.created_at).toLocaleTimeString();
-                    
-                    html += `
-                        <div class="calculation-item">
-                            <div class="calc-type ${calc.type}">${calc.type}</div>
-                            <div class="calc-inputs">${calc.inputs.join(' , ')}</div>
-                            <div class="calc-result">${calc.result}</div>
-                            <div class="calc-date">${date} ${time}</div>
-                            <div class="calc-actions">
-                                <a href="/dashboard/view/${calc.id}" class="btn small">View</a>
-                                <a href="/dashboard/edit/${calc.id}" class="btn small secondary">Edit</a>
-                                <button class="btn small danger" onclick="deleteCalculation('${calc.id}')">Delete</button>
-                            </div>
-                        </div>
-                    `;
-                });
-                
-                html += '</div>';
-                container.innerHTML = html;
-            } else {
+            const response = await apiFetch('/calculations');
+            if (!response) return;
+
+            if (!response.ok) {
                 container.innerHTML = '<p>Error loading calculations. Please try again.</p>';
+                return;
             }
+
+            const calculations = await response.json();
+
+            if (calculations.length === 0) {
+                container.innerHTML = '<p>No calculations yet. Create your first one!</p>';
+                return;
+            }
+
+            let html = '<div class="calculations-grid">';
+
+            calculations.forEach(calc => {
+                const date = new Date(calc.created_at).toLocaleDateString();
+                const time = new Date(calc.created_at).toLocaleTimeString();
+
+                // result is nullable, so never render it bare
+                const result = calc.result ?? '—';
+
+                html += `
+                    <div class="calculation-item">
+                        <div class="calc-type ${calc.type}">${calc.type}</div>
+                        <div class="calc-inputs">${calc.inputs.join(' , ')}</div>
+                        <div class="calc-result">${result}</div>
+                        <div class="calc-date">${date} ${time}</div>
+                        <div class="calc-actions">
+                            <a href="/dashboard/view/${calc.id}" class="btn small">View</a>
+                            <a href="/dashboard/edit/${calc.id}" class="btn small secondary">Edit</a>
+                            <button class="btn small danger" onclick="deleteCalculation('${calc.id}')">Delete</button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
         } catch (error) {
             console.error('Error loading calculations:', error);
             container.innerHTML = '<p>Error loading calculations. Please try again.</p>';
         }
     }
-    
+
     async function deleteCalculation(id) {
         if (!confirm('Are you sure you want to delete this calculation?')) {
             return;
         }
-        
-        const token = localStorage.getItem('access_token');
-        
+
         try {
-            const response = await fetch(`/calculations/${id}`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            
+            const response = await apiFetch(`/calculations/${id}`, { method: 'DELETE' });
+            if (!response) return;
+
             if (response.ok) {
+                showToast('Calculation deleted', 'success');
                 loadCalculations();
             } else {
-                alert('Error deleting calculation. Please try again.');
+                showToast('Error deleting calculation. Please try again.', 'error');
             }
         } catch (error) {
             console.error('Delete error:', error);
-            alert('An error occurred. Please try again.');
+            showToast('An error occurred. Please try again.', 'error');
         }
     }
 </script>
 {% endblock %}
 ```
 
-## Adding CSS Styles
+## Styling: Tailwind, not a stylesheet
 
-Let's create a basic CSS file for styling our application:
+This project does not ship a CSS file. `layout.html` pulls in Tailwind's browser
+build and every template styles itself with utility classes:
 
-```css
-/* static/css/style.css */
-:root {
-    --primary-color: #3498db;
-    --secondary-color: #2ecc71;
-    --danger-color: #e74c3c;
-    --background-color: #f5f5f5;
-    --text-color: #333;
-    --border-color: #ddd;
-    --shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-}
-
-* {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-}
-
-body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    line-height: 1.6;
-    color: var(--text-color);
-    background-color: var(--background-color);
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-}
-
-header {
-    background-color: white;
-    box-shadow: var(--shadow);
-    padding: 1rem 2rem;
-}
-
-nav {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    max-width: 1200px;
-    margin: 0 auto;
-}
-
-.logo {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: var(--primary-color);
-}
-
-.nav-links a {
-    margin-left: 1.5rem;
-    text-decoration: none;
-    color: var(--text-color);
-    transition: color 0.3s;
-}
-
-.nav-links a:hover {
-    color: var(--primary-color);
-}
-
-main {
-    flex: 1;
-    padding: 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
-    width: 100%;
-}
-
-footer {
-    background-color: white;
-    padding: 1rem;
-    text-align: center;
-    box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.05);
-}
-
-/* Form styles */
-.auth-form {
-    max-width: 500px;
-    margin: 0 auto;
-    background-color: white;
-    padding: 2rem;
-    border-radius: 5px;
-    box-shadow: var(--shadow);
-}
-
-.form-group {
-    margin-bottom: 1.5rem;
-}
-
-label {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-weight: 500;
-}
-
-input, select {
-    width: 100%;
-    padding: 0.75rem;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    font-size: 1rem;
-}
-
-small {
-    display: block;
-    margin-top: 0.25rem;
-    color: #666;
-}
-
-.btn {
-    display: inline-block;
-    padding: 0.75rem 1.5rem;
-    background-color: var(--primary-color);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    text-decoration: none;
-    font-size: 1rem;
-    transition: background-color 0.3s;
-}
-
-.btn.secondary {
-    background-color: var(--secondary-color);
-}
-
-.btn.danger {
-    background-color: var(--danger-color);
-}
-
-.btn.small {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.875rem;
-}
-
-.btn:hover {
-    opacity: 0.9;
-}
-
-.error {
-    background-color: #f8d7da;
-    color: #721c24;
-    padding: 0.75rem;
-    margin-bottom: 1rem;
-    border-radius: 4px;
-    border: 1px solid #f5c6cb;
-}
-
-.auth-link {
-    margin-top: 1.5rem;
-    text-align: center;
-}
-
-/* Dashboard styles */
-.dashboard-grid {
-    display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: 2rem;
-}
-
-.calculator-card {
-    background-color: white;
-    padding: 1.5rem;
-    border-radius: 5px;
-    box-shadow: var(--shadow);
-}
-
-.result-box {
-    margin-top: 1.5rem;
-    padding: 1rem;
-    background-color: #f8f9fa;
-    border-radius: 5px;
-    border-left: 4px solid var(--primary-color);
-}
-
-.calculations-list {
-    background-color: white;
-    padding: 1.5rem;
-    border-radius: 5px;
-    box-shadow: var(--shadow);
-}
-
-.calculations-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 1rem;
-    margin-top: 1rem;
-}
-
-.calculation-item {
-    border: 1px solid var(--border-color);
-    border-radius: 5px;
-    padding: 1rem;
-    background-color: #f8f9fa;
-}
-
-.calc-type {
-    display: inline-block;
-    padding: 0.25rem 0.5rem;
-    border-radius: 3px;
-    color: white;
-    font-size: 0.875rem;
-    margin-bottom: 0.5rem;
-}
-
-.calc-type.addition {
-    background-color: var(--primary-color);
-}
-
-.calc-type.subtraction {
-    background-color: var(--secondary-color);
-}
-
-.calc-type.multiplication {
-    background-color: #9b59b6;
-}
-
-.calc-type.division {
-    background-color: #f39c12;
-}
-
-.calc-result {
-    font-size: 1.5rem;
-    font-weight: bold;
-    margin: 0.5rem 0;
-}
-
-.calc-date {
-    font-size: 0.875rem;
-    color: #666;
-    margin-bottom: 0.5rem;
-}
-
-.calc-actions {
-    margin-top: 1rem;
-    display: flex;
-    gap: 0.5rem;
-}
-
-/* Hero section */
-.hero {
-    background-color: white;
-    padding: 4rem 2rem;
-    text-align: center;
-    border-radius: 5px;
-    box-shadow: var(--shadow);
-    margin-bottom: 2rem;
-}
-
-.hero-content h1 {
-    font-size: 2.5rem;
-    margin-bottom: 1rem;
-    color: var(--primary-color);
-}
-
-.hero-content p {
-    font-size: 1.25rem;
-    max-width: 600px;
-    margin: 0 auto 2rem;
-    color: #666;
-}
-
-.cta-buttons {
-    display: flex;
-    gap: 1rem;
-    justify-content: center;
-}
-
-/* Features section */
-.features {
-    padding: 2rem 0;
-}
-
-.features h2 {
-    text-align: center;
-    margin-bottom: 2rem;
-}
-
-.feature-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 2rem;
-}
-
-.feature-card {
-    background-color: white;
-    padding: 1.5rem;
-    border-radius: 5px;
-    box-shadow: var(--shadow);
-    transition: transform 0.3s;
-}
-
-.feature-card:hover {
-    transform: translateY(-5px);
-}
-
-.feature-card h3 {
-    color: var(--primary-color);
-    margin-bottom: 1rem;
-}
-
-/* Responsive styles */
-@media (max-width: 768px) {
-    .dashboard-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    nav {
-        flex-direction: column;
-        gap: 1rem;
-    }
-    
-    .nav-links {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 1rem;
-    }
-    
-    .nav-links a {
-        margin-left: 0;
-    }
-}
+```html
+<script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 ```
+
+There used to be a `static/css/style.css` here as well. It was linked from every
+page but contained nothing — a zero-byte file fetched on every page load — so it
+and its `<link>` were removed. The same clean-up dropped a duplicate Inter font
+import (the page was loading the same family from both `rsms.me` and Google
+Fonts) and a `<link>` to a `favicon.ico` that was never added to the repo and so
+returned a 404 on every page.
+
+The general rule: a `<link>` to a file that does not exist, or exists but is
+empty, is not harmless. It is a request per page load that can only fail.
 
 ## Adding JavaScript Functionality
 
-Let's create a JavaScript file for common functionality:
+`static/js/script.js` holds the helpers shared by every page. `layout.html`
+loads it *before* any page-specific `<script>` block, so each template can call
+into it directly.
+
+### The API wrapper
+
+Every authenticated request goes through one function. This is the most
+important helper in the file:
 
 ```javascript
-// static/js/script.js
+/**
+ * Call the API with the stored access token attached.
+ *
+ * A 401 means the token is no longer usable by any request on the page, so the
+ * session is ended here rather than at each call site. Callers get null in that
+ * case and should return without touching the page, which is about to unload.
+ */
+window.apiFetch = async function (path, options = {}) {
+  const headers = { ...options.headers };
+  headers['Authorization'] = `Bearer ${localStorage.getItem('access_token')}`;
+  if (options.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
 
-// Utility functions
-function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-}
+  const response = await fetch(path, { ...options, headers });
 
-function getAuthToken() {
-    return localStorage.getItem('access_token');
-}
+  if (response.status === 401) {
+    window.endSession();
+    return null;
+  }
 
-function isLoggedIn() {
-    return !!getAuthToken();
-}
-
-function redirectToLogin() {
-    window.location.href = '/login';
-}
-
-// API request helper
-async function apiRequest(url, method = 'GET', data = null) {
-    const token = getAuthToken();
-    
-    if (!token && url !== '/auth/login' && url !== '/auth/register') {
-        redirectToLogin();
-        return null;
-    }
-    
-    const headers = {
-        'Content-Type': 'application/json'
-    };
-    
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
-    
-    const options = {
-        method: method,
-        headers: headers
-    };
-    
-    if (data && (method === 'POST' || method === 'PUT')) {
-        options.body = JSON.stringify(data);
-    }
-    
-    try {
-        const response = await fetch(url, options);
-        
-        // Handle 401 (Unauthorized) by redirecting to login
-        if (response.status === 401 && url !== '/auth/login') {
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('user_info');
-            redirectToLogin();
-            return null;
-        }
-        
-        // For DELETE operations (204 No Content)
-        if (method === 'DELETE' && response.status === 204) {
-            return true;
-        }
-        
-        // Parse JSON response
-        const result = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(result.detail || 'API request failed');
-        }
-        
-        return result;
-    } catch (error) {
-        console.error('API request error:', error);
-        throw error;
-    }
-}
-
-// Check auth status when page loads
-document.addEventListener('DOMContentLoaded', function() {
-    updateAuthUI();
-});
-
-function updateAuthUI() {
-    const authLinks = document.getElementById('auth-links');
-    const userLinks = document.getElementById('user-links');
-    
-    if (isLoggedIn()) {
-        if (authLinks) authLinks.style.display = 'none';
-        if (userLinks) userLinks.style.display = 'inline';
-        
-        // Set up logout handler
-        const logoutLink = document.getElementById('logout-link');
-        if (logoutLink) {
-            logoutLink.addEventListener('click', function(e) {
-                e.preventDefault();
-                logout();
-            });
-        }
-    } else {
-        if (authLinks) authLinks.style.display = 'inline';
-        if (userLinks) userLinks.style.display = 'none';
-    }
-}
-
-function logout() {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user_info');
-    window.location.href = '/';
-}
+  return response;
+};
 ```
+
+Call sites become short, and — more to the point — they all handle expiry the
+same way:
+
+```javascript
+const response = await apiFetch('/calculations');
+if (!response) return;          // 401 already handled; page is unloading
+const calculations = await response.json();
+```
+
+Before this existed, each page hand-wrote the same three things: read the token
+from `localStorage`, set the `Authorization` header, and check for a 401. There
+were eleven such blocks across `dashboard`, `edit_calculation`,
+`view_calculation` and `profile`. Eleven copies of a rule means eleven chances
+for one of them to drift — and a page whose 401 check was missed leaves the user
+staring at an empty screen instead of the login form.
+
+### Session helpers
+
+```javascript
+window.endSession = function () {
+  localStorage.clear();
+  window.location.href = '/login';
+};
+
+window.requireLogin = function () {
+  if (localStorage.getItem('access_token')) {
+    return true;
+  }
+  window.location.href = '/login';
+  return false;
+};
+```
+
+`requireLogin()` runs at the top of each protected page. `endSession()` is what
+`apiFetch` calls on a 401, and what the logout button calls directly. Note that
+it clears *all* of `localStorage`, so a stale refresh token cannot outlive the
+session it belonged to.
+
+### Notifications
+
+`showToast` renders a dismissible message in the corner of the page:
+
+```javascript
+window.showToast = function (message, type = 'info', duration = 5000) { ... }
+
+showToast('Calculation saved', 'success');
+showToast('Could not reach the server', 'error');
+```
+
+It takes `'info'`, `'success'`, `'error'` or `'warning'`. This lives in
+`script.js` rather than in an inline `<script>` in `layout.html`, so that pages
+and helpers can both reach it.
+
+### Validation helpers
+
+The remaining exports keep client-side validation consistent with what the API
+will actually accept:
+
+| Helper | Purpose |
+|---|---|
+| `validateCalculationInputs(raw, type)` | Parse the operand box; enforce ≥2 numbers and reject division by zero |
+| `isValidEmail(email)` | Email shape check |
+| `describePasswordError(password)` | Return the first unmet password rule, or null |
+| `isValidPassword(password)` | Boolean form of the above |
+| `setInputValidation(input, isValid)` | Toggle the valid/invalid styling on a field |
+| `extractErrorMessage(data, fallback)` | Pull a readable message out of a FastAPI error body |
+
+`describePasswordError` mirrors `validate_password_strength` in
+`app/schemas/user.py`. The server is still the authority — the client copy only
+exists so the user gets feedback before submitting.
+
+> **Keep them in step.** If you change the password policy, change it in both
+> places. The server rule is the one that is enforced; the client rule is the
+> one the user sees. When they disagree, the form either rejects a password the
+> API would accept, or accepts one it will not.
 
 ## Connecting FastAPI Routes with Templates
 

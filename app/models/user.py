@@ -17,13 +17,20 @@ The User model is designed to follow security best practices:
 
 import uuid
 from datetime import timedelta
-from sqlalchemy import Column, String, Boolean, DateTime, or_
+
+from sqlalchemy import Boolean, Column, DateTime, String, or_
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
+
 from app.core.config import get_settings
 from app.core.datetime_utils import utcnow
 from app.database import Base
-from app.models.calculation import Calculation
+
+# Imported for its side effect, not its name: the `calculations` relationship
+# below refers to "Calculation" as a string, which SQLAlchemy only resolves if
+# the class has been registered on the mapper registry. Without this import,
+# importing app.models.user on its own raises InvalidRequestError.
+from app.models.calculation import Calculation  # noqa: F401
 
 settings = get_settings()
 
@@ -348,8 +355,9 @@ class User(Base):
         Returns:
             UUID: User ID if token is valid, None otherwise
         """
+        from jose import JWTError, jwt
+
         from app.schemas.token import TokenType
-        from jose import jwt, JWTError
 
         token_type = token_type or TokenType.ACCESS
         secret = (

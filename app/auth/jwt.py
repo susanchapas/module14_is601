@@ -1,11 +1,12 @@
 # app/auth/jwt.py
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
+from uuid import UUID
+
+from fastapi import HTTPException, status
 from jose import jwt
 from passlib.context import CryptContext
-from fastapi import HTTPException, status
-from uuid import UUID
-import secrets
 
 from app.core.config import get_settings
 from app.schemas.token import TokenType
@@ -70,4 +71,4 @@ def create_token(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Could not create token: {str(e)}"
-        )
+        ) from e

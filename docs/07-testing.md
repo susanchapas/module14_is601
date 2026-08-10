@@ -127,25 +127,32 @@ def auth_header(test_user):
 
 ## Writing Unit Tests
 
-Let's write some unit tests for our calculation models:
+Let's write some tests for our calculation models. These live in
+`tests/integration/test_calculation.py`, because the classes under test are
+SQLAlchemy models rather than free functions:
 
 ```python
-# tests/unit/test_calculator.py
+# tests/integration/test_calculation.py
+import uuid
+
 import pytest
+
 from app.models.calculation import Addition, Subtraction, Multiplication, Division
 
-def test_addition():
-    """Test addition calculation."""
-    # Create an Addition calculation
-    addition = Addition(inputs=[1, 2, 3])
-    
-    # Test that it calculates the correct result
-    assert addition.get_result() == 6
+def dummy_user_id():
+    return uuid.uuid4()
+
+def test_addition_get_result():
+    """Test that Addition.get_result returns the correct sum."""
+    inputs = [10, 5, 3.5]
+    addition = Addition(user_id=dummy_user_id(), inputs=inputs)
+
+    assert addition.get_result() == sum(inputs)
 
 def test_subtraction():
     """Test subtraction calculation."""
     # Create a Subtraction calculation
-    subtraction = Subtraction(inputs=[10, 2, 3])
+    subtraction = Subtraction(user_id=dummy_user_id(), inputs=[10, 2, 3])
     
     # Test that it calculates the correct result
     assert subtraction.get_result() == 5
@@ -153,7 +160,7 @@ def test_subtraction():
 def test_multiplication():
     """Test multiplication calculation."""
     # Create a Multiplication calculation
-    multiplication = Multiplication(inputs=[2, 3, 4])
+    multiplication = Multiplication(user_id=dummy_user_id(), inputs=[2, 3, 4])
     
     # Test that it calculates the correct result
     assert multiplication.get_result() == 24
@@ -161,7 +168,7 @@ def test_multiplication():
 def test_division():
     """Test division calculation."""
     # Create a Division calculation
-    division = Division(inputs=[12, 3, 2])
+    division = Division(user_id=dummy_user_id(), inputs=[12, 3, 2])
     
     # Test that it calculates the correct result
     assert division.get_result() == 2
@@ -169,7 +176,7 @@ def test_division():
 def test_division_by_zero():
     """Test division by zero raises ValueError."""
     # Create a Division calculation with a zero divisor
-    division = Division(inputs=[12, 0])
+    division = Division(user_id=dummy_user_id(), inputs=[12, 0])
     
     # Test that division by zero raises a ValueError
     with pytest.raises(ValueError) as excinfo:
@@ -181,13 +188,13 @@ def test_division_by_zero():
 def test_invalid_inputs():
     """Test invalid inputs raise ValueError."""
     # Test with single input
-    addition = Addition(inputs=[1])
+    addition = Addition(user_id=dummy_user_id(), inputs=[1])
     with pytest.raises(ValueError) as excinfo:
         addition.get_result()
     assert "at least two numbers" in str(excinfo.value)
     
     # Test with non-list input
-    addition = Addition(inputs="not a list")
+    addition = Addition(user_id=dummy_user_id(), inputs="not a list")
     with pytest.raises(ValueError) as excinfo:
         addition.get_result()
     assert "Inputs must be a list" in str(excinfo.value)
@@ -525,10 +532,43 @@ To run the tests, we'll set up a pytest configuration file:
 # pytest.ini
 [pytest]
 testpaths = tests
-python_files = test_*.py
+
+addopts = --cov=app --cov-report=term-missing
+
+python_files = test_*.py *_test.py
 python_classes = Test*
 python_functions = test_*
+
+markers =
+    slow: marks tests as slow (deselect with '-m "not slow"')
+    fast: marks tests as fast (deselect with '-m "not fast"')
+    e2e: marks tests as end-to-end (use with '-m "e2e"')
+
+# Deprecation warnings from our own code are failures, not noise. Third-party
+# noise gets a narrow, specific ignore below rather than a blanket one.
+filterwarnings =
+    error::DeprecationWarning
+    error::PendingDeprecationWarning
+    ignore::ResourceWarning
+    ignore:Using `httpx` with `starlette.testclient` is deprecated
 ```
+
+### Why deprecations are errors
+
+It is tempting to write `ignore::DeprecationWarning` and move on. Don't. A
+blanket ignore hides your own deprecated calls along with everyone else's, and
+the warnings you most want to see — `.dict()` instead of `.model_dump()`,
+`min_items` instead of `min_length` — are precisely the ones that will break on
+the next major upgrade of a dependency.
+
+Setting `error::DeprecationWarning` makes the test that reaches a deprecated
+call fail, with a traceback pointing at the call. Third-party warnings you
+genuinely cannot fix get one narrow `ignore` line each, matched on the message
+text, so the exemption is visible and reviewable.
+
+One limitation to be aware of: the e2e tests drive a Uvicorn **subprocess**,
+which does not inherit pytest's warning filters. A deprecated call on a path
+that only e2e tests exercise will not be caught by this.
 
 Now we can run the tests with different options:
 
@@ -540,16 +580,16 @@ pytest
 pytest tests/unit/
 
 # Run a specific test file
-pytest tests/unit/test_calculator.py
+pytest tests/integration/test_user_auth.py
 
 # Run a specific test function
-pytest tests/unit/test_calculator.py::test_addition
+pytest tests/integration/test_user_auth.py::test_user_authentication
 
 # Show detailed output
 pytest -v
 
-# Show test coverage
-pytest --cov=app
+# Skip coverage for a faster run
+pytest --no-cov
 ```
 
 ## Test Mocking and Fixtures
@@ -645,7 +685,57 @@ Test coverage measures how much of your code is executed during your tests. To c
 pytest --cov=app --cov-report=term-missing
 ```
 
+This is already the default in `pytest.ini`, so a bare `pytest` reports it.
+The HTML and XML reports are deliberately *not* on by default — otherwise
+running one test would regenerate the whole `htmlcov/` tree:
+
+```bash
+pytest --cov-report=html   # htmlcov/index.html
+pytest --cov-report=xml    # coverage.xml, for CI to upload
+```
+
 This will show which lines of code are not covered by tests, helping you identify areas that need more testing.
+
+### Run the suite once, not once per directory
+
+Coverage data is written at the end of a run, so **each `pytest` invocation
+overwrites the last one's data** unless you pass `--cov-append`. A CI script
+like this looks thorough and silently reports only the last number:
+
+```bash
+# Wrong: each line discards the coverage data from the line above it
+pytest tests/unit/
+pytest tests/integration/
+pytest tests/e2e/
+```
+
+Run the suite in one invocation instead:
+
+```bash
+pytest tests/ --cov-report=xml
+```
+
+## Linting
+
+Tests catch behaviour; a linter catches the things that are wrong on sight.
+[`ruff`](https://docs.astral.sh/ruff/) is configured in `ruff.toml` and runs in
+CI before the test job:
+
+```bash
+ruff check .          # report
+ruff check . --fix    # apply the safe fixes
+```
+
+Rule sets `E`, `F`, `I` and `B` are selected. `F` alone justifies it: unused
+imports, duplicate imports and unused variables are all things that accumulate
+quietly and that no test will ever fail on.
+
+> **Review the autofixes.** `ruff check --fix` is not a rubber stamp. `F401`
+> removes imports it believes are unused, but an import can exist purely for
+> its side effect. `app/models/user.py` imports `Calculation` so SQLAlchemy can
+> resolve the `relationship("Calculation")` string at mapper-configuration
+> time; deleting it makes `import app.models.user` raise `InvalidRequestError`.
+> That import carries a `# noqa: F401` and a comment saying why.
 
 ## Test-Driven Development (TDD)
 

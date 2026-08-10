@@ -1,11 +1,11 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm.session import Session
 import importlib
 import sys
+from unittest.mock import MagicMock, patch
+
+import pytest
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
 
 DATABASE_MODULE = "app.database"
 

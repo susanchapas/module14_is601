@@ -105,97 +105,97 @@ def create_token(subject: str, token_type: TokenType) -> str:
 
 ## Creating Authentication Dependencies
 
-Now, let's create dependencies that will be used to protect routes in `app/auth/dependencies.py`:
+`app/auth/dependencies.py` provides three dependencies, layered so that each
+endpoint pays only for what it needs. Note that they are plain `def`, not
+`async def`: they do blocking database work, so FastAPI should run them in its
+threadpool rather than on the event loop.
 
 ```python
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
 from sqlalchemy.orm import Session
-from uuid import UUID
 
-from app.core.config import get_settings
+from app.core.datetime_utils import utcnow
 from app.database import get_db
 from app.models.user import User
+from app.schemas.user import UserResponse
 
-settings = get_settings()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
-# OAuth2 scheme for Bearer token authentication
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
-
-async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
-) -> User:
+def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
     """
-    Get the current user from the JWT token.
-    
-    Args:
-        token: JWT token from the Authorization header
-        db: Database session
-        
-    Returns:
-        User: The authenticated user
-        
-    Raises:
-        HTTPException: If the token is invalid or the user doesn't exist
+    Get the current user from the JWT token, without a database lookup.
+
+    User.verify_token yields only the subject UUID, so every field other than
+    the id is a placeholder.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
-    try:
-        # Decode the JWT token
-        payload = jwt.decode(
-            token, 
-            settings.JWT_SECRET_KEY, 
-            algorithms=[settings.ALGORITHM]
-        )
-        
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-        
-        # Convert the user_id to UUID
-        try:
-            user_uuid = UUID(user_id)
-        except ValueError:
-            raise credentials_exception
-            
-    except JWTError:
-        raise credentials_exception
-        
-    # Get the user from the database
-    user = db.query(User).filter(User.id == user_uuid).first()
-    if user is None:
-        raise credentials_exception
-        
-    return user
 
-async def get_current_active_user(
-    current_user: User = Depends(get_current_user)
-) -> User:
-    """
-    Get the current active user.
-    
-    Args:
-        current_user: The authenticated user
-        
-    Returns:
-        User: The authenticated active user
-        
-    Raises:
-        HTTPException: If the user is not active
-    """
+    user_id = User.verify_token(token)
+    if user_id is None:
+        raise credentials_exception
+
+    now = utcnow()
+    return UserResponse(
+        id=user_id,
+        username="unknown",
+        email="unknown@example.com",
+        first_name="Unknown",
+        last_name="User",
+        is_active=True,
+        is_verified=False,
+        created_at=now,
+        updated_at=now,
+    )
+
+def get_current_active_user(
+    current_user: UserResponse = Depends(get_current_user)
+) -> UserResponse:
+    """Ensure the current user is active."""
     if not current_user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user"
         )
     return current_user
+
+def get_current_user_record(
+    current_user: UserResponse = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> User:
+    """Load the current user's database record."""
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user
 ```
+
+### Which dependency should an endpoint use?
+
+This is the part that most often goes wrong, so it is worth being explicit.
+
+| Dependency | Hits the database? | Returns | Use it when |
+|---|---|---|---|
+| `get_current_user` | No | `UserResponse` with **placeholder fields** | You only need the caller's `id` |
+| `get_current_active_user` | No | Same, after an `is_active` check | You only need the id, and want inactive users rejected |
+| `get_current_user_record` | Yes | The real `User` row | You need to read or write any stored profile field |
+
+> **Trap.** `get_current_user` never queries the database. It reconstructs a
+> `UserResponse` from the token's subject claim alone, so `username`, `email`
+> and the rest are literal placeholders (`"unknown"`, `"Unknown"`). They are
+> there to satisfy the response model, not to be read. An endpoint that returns
+> profile data must depend on `get_current_user_record`, or it will serve
+> `"unknown@example.com"` to every caller.
+
+Token decoding itself is not duplicated here: it lives in `User.verify_token`,
+which is the single place that knows which secret goes with which token type.
 
 ## Implementing Authentication Endpoints
 
@@ -213,7 +213,7 @@ def register(user_create: UserCreate, db: Session = Depends(get_db)):
     """
     Create a new user account.
     """
-    user_data = user_create.dict(exclude={"confirm_password"})
+    user_data = user_create.model_dump(exclude={"confirm_password"})
     try:
         user = User.register(db, user_data)
         db.commit()
@@ -221,7 +221,7 @@ def register(user_create: UserCreate, db: Session = Depends(get_db)):
         return user
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 # User Login Endpoints
@@ -240,20 +240,12 @@ def login_json(user_login: UserLogin, db: Session = Depends(get_db)):
         )
 
     user = auth_result["user"]
-    db.commit()  # commit the last_login update
-
-    # Ensure expires_at is timezone-aware
-    expires_at = auth_result.get("expires_at")
-    if expires_at and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    else:
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
 
     return TokenResponse(
         access_token=auth_result["access_token"],
         refresh_token=auth_result["refresh_token"],
         token_type="bearer",
-        expires_at=expires_at,
+        expires_at=auth_result["expires_at"],
         user_id=user.id,
         username=user.username,
         email=user.email,
@@ -282,6 +274,73 @@ def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
         "token_type": "bearer"
     }
 ```
+
+### Two things worth noticing
+
+**The route does not recompute `expires_at`.** It passes
+`auth_result["expires_at"]` straight through. `User.authenticate` derives that
+value from `ACCESS_TOKEN_EXPIRE_MINUTES` and returns it already timezone-aware,
+so there is exactly one place that decides how long a token lives.
+
+An earlier version of this route tried to "normalize" the value instead:
+
+```python
+# Don't do this.
+expires_at = auth_result.get("expires_at")
+if expires_at and expires_at.tzinfo is None:
+    expires_at = expires_at.replace(tzinfo=timezone.utc)
+else:
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+```
+
+Because `authenticate` already returned an aware datetime, the `if` never fired
+and the `else` silently overwrote the real expiry with a hardcoded 15 minutes.
+Clients were told their 30-minute token expired in 15, and logged out halfway
+through its life. Deriving a value in two places is how the two places come to
+disagree.
+
+**Neither route commits.** `User.authenticate` updates `last_login` and commits
+it itself, so both login routes behave identically. When only `login_json`
+committed, a `/auth/token` login left `last_login` as `NULL`, because
+`get_db()` closed the session and rolled the write back.
+
+## Refreshing an Access Token
+
+Access tokens are deliberately short-lived. `POST /auth/refresh` lets a client
+that still holds a valid refresh token get a new access token without asking
+for the password again:
+
+```python
+@app.post("/auth/refresh", response_model=AccessTokenResponse, tags=["auth"])
+def refresh_access_token(refresh_request: RefreshRequest, db: Session = Depends(get_db)):
+    """
+    Exchange a refresh token for a new access token.
+    """
+    invalid_token = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid refresh token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    user_id = User.verify_token(refresh_request.refresh_token, TokenType.REFRESH)
+    if user_id is None:
+        raise invalid_token
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or not user.is_active:
+        raise invalid_token
+    ...
+```
+
+Two details matter here. The token is verified with
+`TokenType.REFRESH`, so an *access* token cannot be replayed against this
+endpoint — the two token types are signed with different secrets. And the
+refresh token is not reissued; when it expires, the user logs in again.
+
+> If you are following an older version of this guide: the refresh token used
+> to be issued at login and stored in `localStorage` with no endpoint that
+> accepted it. Storing a credential the API will not honour is strictly worse
+> than not issuing one, so the endpoint above was added to make it real.
 
 ## Implementing User Authentication Methods
 
@@ -332,12 +391,15 @@ def register(cls, db, user_data: dict):
 def authenticate(cls, db, username_or_email: str, password: str):
     """
     Authenticate a user by username/email and password.
-    
+
     Args:
         db: SQLAlchemy database session
         username_or_email: Username or email to authenticate
         password: Password to verify
-        
+
+    The updated last_login is committed here so that every caller persists
+    it, whatever route it came from.
+
     Returns:
         dict: Authentication result with tokens and user data, or None if authentication fails
     """
@@ -350,21 +412,39 @@ def authenticate(cls, db, username_or_email: str, password: str):
 
     # Update the last_login timestamp
     user.last_login = utcnow()
-    db.flush()
-
-    # Generate tokens
-    access_token = cls.create_access_token({"sub": str(user.id)})
-    refresh_token = cls.create_refresh_token({"sub": str(user.id)})
-    expires_at = utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    db.commit()
 
     return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "expires_at": expires_at,
+        **cls.issue_access_token(user),
+        "refresh_token": cls.create_refresh_token({"sub": str(user.id)}),
         "user": user
     }
+
+@classmethod
+def issue_access_token(cls, user) -> dict:
+    """
+    Mint an access token for a user and report when it expires.
+
+    Shared by /auth/login and /auth/refresh so that both report the same
+    lifetime, derived from ACCESS_TOKEN_EXPIRE_MINUTES.
+    """
+    return {
+        "access_token": cls.create_access_token({"sub": str(user.id)}),
+        "token_type": "bearer",
+        "expires_at": utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    }
 ```
+
+Two deliberate choices here:
+
+- **`db.commit()`, not `db.flush()`.** A flush sends the `UPDATE` to the
+  database but leaves it inside the open transaction. `get_db()` closes the
+  session when the request ends, which rolls that transaction back, so a
+  flushed `last_login` was silently discarded for any route that did not commit
+  on its own. Committing in `authenticate` means every caller behaves the same.
+- **`issue_access_token` is shared.** Both `/auth/login` and `/auth/refresh`
+  mint tokens through it, so a change to the token lifetime takes effect in
+  both places at once.
 
 ## Protecting API Routes
 

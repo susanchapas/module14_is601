@@ -12,11 +12,13 @@ The schemas use Pydantic's validation system to ensure data integrity and provid
 clear error messages when validation fails.
 """
 
+from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
 from typing import Dict, List, Optional
 from uuid import UUID
-from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
 
 class CalculationType(str, Enum):
     """
@@ -50,13 +52,13 @@ class CalculationBase(BaseModel):
     type: CalculationType = Field(
         ...,  # The ... means this field is required
         description="Type of calculation (addition, subtraction, multiplication, division)",
-        example="addition"
+        examples=["addition"]
     )
     inputs: List[float] = Field(
         ...,  # The ... means this field is required
         description="List of numeric inputs for the calculation",
-        example=[10.5, 3, 2],
-        min_items=2  # Ensures at least 2 numbers are provided
+        examples=[[10.5, 3, 2]],
+        min_length=2  # Ensures at least 2 numbers are provided
     )
 
     @field_validator("type", mode="before")
@@ -158,8 +160,8 @@ class CalculationUpdate(BaseModel):
     inputs: Optional[List[float]] = Field(
         None,  # None means this field is optional
         description="Updated list of numeric inputs for the calculation",
-        example=[42, 7],
-        min_items=2  # If provided, at least 2 items are required
+        examples=[[42, 7]],
+        min_length=2  # If provided, at least 2 items are required
     )
 
     @model_validator(mode='after')
@@ -199,8 +201,8 @@ class CalculationReplace(CalculationUpdate):
     inputs: List[float] = Field(
         ...,
         description="Full list of numeric inputs to replace the stored ones",
-        example=[42, 7],
-        min_items=2
+        examples=[[42, 7]],
+        min_length=2
     )
 
 class CalculationStats(BaseModel):
@@ -217,12 +219,12 @@ class CalculationStats(BaseModel):
     total_calculations: int = Field(
         ...,
         description="Number of calculations the user has saved",
-        example=12
+        examples=[12]
     )
     average_operands: float = Field(
         ...,
         description="Mean number of inputs per calculation, rounded to two decimals",
-        example=2.42
+        examples=[2.42]
     )
     counts_by_type: Dict[CalculationType, int] = Field(
         ...,
@@ -231,7 +233,7 @@ class CalculationStats(BaseModel):
     most_used_type: Optional[CalculationType] = Field(
         None,
         description="The most frequently used calculation type, or null if there are none",
-        example="addition"
+        examples=["addition"]
     )
     last_calculation_at: Optional[datetime] = Field(
         None,
@@ -275,12 +277,12 @@ class CalculationResponse(CalculationBase):
     id: UUID = Field(
         ...,
         description="Unique UUID of the calculation",
-        example="123e4567-e89b-12d3-a456-426614174999"
+        examples=["123e4567-e89b-12d3-a456-426614174999"]
     )
     user_id: UUID = Field(
         ...,
         description="UUID of the user who owns this calculation",
-        example="123e4567-e89b-12d3-a456-426614174000"
+        examples=["123e4567-e89b-12d3-a456-426614174000"]
     )
     created_at: datetime = Field(
         ..., 
@@ -293,7 +295,7 @@ class CalculationResponse(CalculationBase):
     result: Optional[float] = Field(
         None,
         description="Result of the calculation, or null if it has not been computed yet",
-        example=15.5
+        examples=[15.5]
     )
 
     model_config = ConfigDict(

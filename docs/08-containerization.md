@@ -84,8 +84,12 @@ services:
     volumes:
       - .:/app
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/calculator
-      - JWT_SECRET_KEY=your_secret_key_change_in_production
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/fastapi_db
+      - TEST_DATABASE_URL=postgresql://postgres:postgres@db:5432/fastapi_test_db
+      # Both JWT secrets are required. The app has no defaults for them, so
+      # omitting either one here makes the container fail to start.
+      - JWT_SECRET_KEY=super-secret-key-for-jwt-min-32-chars
+      - JWT_REFRESH_SECRET_KEY=super-refresh-secret-key-min-32-chars
     depends_on:
       - db
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -154,24 +158,57 @@ import os
 from pydantic import BaseSettings, PostgresDsn
 from functools import lru_cache
 
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
 class Settings(BaseSettings):
-    """Application settings."""
-    # Default values for local development
-    DATABASE_URL: PostgresDsn = "postgresql://postgres:postgres@localhost:5432/calculator"
-    JWT_SECRET_KEY: str = "your_secret_key_change_in_production"
+    # Database settings
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/fastapi_db"
+    TEST_DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/fastapi_test_db"
+
+    # JWT Settings
+    #
+    # Deliberately no defaults: a missing value must fail loudly at startup
+    # rather than yield a working app signed with a public, well-known key.
+    JWT_SECRET_KEY: str
+    JWT_REFRESH_SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+
+    # Security
+    BCRYPT_ROUNDS: int = 12
+
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Get application settings from environment variables or .env file."""
+    """Return the one Settings instance the whole application reads from."""
     return Settings()
 ```
+
+Three things to note:
+
+- **`BaseSettings` comes from `pydantic_settings`**, not from `pydantic`. It
+  moved out into its own package in Pydantic v2.
+- **`model_config = SettingsConfigDict(...)`** replaces the v1 inner
+  `class Config`.
+- **The two JWT secrets have no default.** A default here is a trap: a missing
+  environment variable would yield an app that starts happily and signs its
+  tokens with a value anyone can read in the repository. With no default,
+  `Settings()` raises a `ValidationError` naming the missing keys instead.
+  Copy `.env.example` to `.env` and generate real values:
+
+  ```bash
+  cp .env.example .env
+  python -c "import secrets; print(secrets.token_urlsafe(32))"
+  ```
+
+`get_settings()` is the single accessor, and `lru_cache` makes it return the
+same instance every time. Do not add a module-level `settings = Settings()`
+alongside it — that creates a *second*, independent instance, and then which
+configuration you get depends on which import a module happened to use.
 
 ## Building and Running with Docker
 

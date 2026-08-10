@@ -1,12 +1,15 @@
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
-from uuid import uuid4
-from datetime import datetime
+
+from app.core.datetime_utils import utcnow
 from app.schemas.calculation import (
     CalculationBase,
+    CalculationResponse,
     CalculationUpdate,
-    CalculationResponse
 )
+
 
 def test_calculation_base_valid():
     """Test creating a valid CalculationBase schema."""
@@ -94,8 +97,8 @@ def test_calculation_response_valid():
         "type": "subtraction",
         "inputs": [20, 5],
         "result": 15.5,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": utcnow(),
+        "updated_at": utcnow(),
     }
     calc_response = CalculationResponse(**data)
     assert calc_response.id is not None

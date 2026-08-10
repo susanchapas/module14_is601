@@ -16,28 +16,47 @@ The application follows a RESTful API design with proper separation of concerns:
 """
 
 from contextlib import asynccontextmanager  # Used for startup/shutdown events
-from uuid import UUID  # For type validation of UUIDs in path parameters
 from typing import List
-
-# FastAPI imports
-from fastapi import Body, FastAPI, Depends, HTTPException, status, Request, Form
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles  # For serving static files (CSS, JS)
-from fastapi.templating import Jinja2Templates  # For HTML templates
-
-from sqlalchemy.orm import Session  # SQLAlchemy database session
+from uuid import UUID  # For type validation of UUIDs in path parameters
 
 import uvicorn  # ASGI server for running FastAPI apps
 
+# FastAPI imports
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import HTMLResponse
+from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles  # For serving static files (CSS, JS)
+from fastapi.templating import Jinja2Templates  # For HTML templates
+from sqlalchemy.orm import Session  # SQLAlchemy database session
+
 # Application imports
-from app.auth.dependencies import get_current_active_user, get_current_user_record  # Authentication dependencies
+from app.auth.dependencies import (  # Authentication dependencies
+    get_current_active_user,
+    get_current_user_record,
+)
+from app.database import Base, engine, get_db  # Database connection
 from app.models.calculation import Calculation  # Database model for calculations
 from app.models.user import User  # Database model for users
-from app.schemas.calculation import CalculationBase, CalculationReplace, CalculationResponse, CalculationStats, CalculationUpdate  # API request/response schemas
-from app.schemas.token import AccessTokenResponse, RefreshRequest, TokenResponse, TokenType  # API token schemas
-from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate, PasswordUpdate  # User schemas
-from app.database import Base, get_db, engine  # Database connection
+from app.schemas.calculation import (  # API request/response schemas
+    CalculationBase,
+    CalculationReplace,
+    CalculationResponse,
+    CalculationStats,
+    CalculationUpdate,
+)
+from app.schemas.token import (  # API token schemas
+    AccessTokenResponse,
+    RefreshRequest,
+    TokenResponse,
+    TokenType,
+)
+from app.schemas.user import (  # User schemas
+    PasswordUpdate,
+    UserCreate,
+    UserLogin,
+    UserResponse,
+    UserUpdate,
+)
 
 
 # ------------------------------------------------------------------------------
@@ -192,7 +211,7 @@ def register(user_create: UserCreate, db: Session = Depends(get_db)):
     """
     Create a new user account.
     """
-    user_data = user_create.dict(exclude={"confirm_password"})
+    user_data = user_create.model_dump(exclude={"confirm_password"})
     try:
         user = User.register(db, user_data)
         db.commit()
@@ -200,7 +219,7 @@ def register(user_create: UserCreate, db: Session = Depends(get_db)):
         return user
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 # ------------------------------------------------------------------------------
@@ -311,7 +330,7 @@ def update_profile(
         return current_user
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @app.post("/users/me/password", tags=["users"])
@@ -335,7 +354,7 @@ def change_password(
         return {"message": "Password updated successfully"}
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 # ------------------------------------------------------------------------------
@@ -375,7 +394,7 @@ def create_calculation(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
-        )
+        ) from e
 
 
 # Browse / List Calculations
@@ -419,8 +438,8 @@ def _get_owned_calculation(calc_id: str, current_user, db: Session) -> Calculati
     """
     try:
         calc_uuid = UUID(calc_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid calculation id format.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid calculation id format.") from e
 
     calculation = db.query(Calculation).filter(
         Calculation.id == calc_uuid,
@@ -455,7 +474,7 @@ def _apply_calculation_update(
         calculation.result = calculation.get_result()
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     db.commit()
     db.refresh(calculation)

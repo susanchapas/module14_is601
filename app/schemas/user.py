@@ -1,9 +1,10 @@
 # app/schemas/user.py
 
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 SPECIAL_CHARACTERS = "!@#$%^&*()_+-=[]{}|;:,.<>?"
 
@@ -39,23 +40,23 @@ class UserBase(BaseModel):
     first_name: str = Field(
         min_length=1,
         max_length=50,
-        example="John",
+        examples=["John"],
         description="User's first name"
     )
     last_name: str = Field(
         min_length=1,
         max_length=50,
-        example="Doe",
+        examples=["Doe"],
         description="User's last name"
     )
     email: EmailStr = Field(
-        example="john.doe@example.com",
+        examples=["john.doe@example.com"],
         description="User's email address"
     )
     username: str = Field(
         min_length=3,
         max_length=50,
-        example="johndoe",
+        examples=["johndoe"],
         description="User's unique username"
     )
 
@@ -66,13 +67,13 @@ class UserCreate(UserBase):
     password: str = Field(
         min_length=8,
         max_length=128,
-        example="SecurePass123!",
+        examples=["SecurePass123!"],
         description="User's password (8-128 characters)"
     )
     confirm_password: str = Field(
         min_length=8,
         max_length=128,
-        example="SecurePass123!",
+        examples=["SecurePass123!"],
         description="Password confirmation"
     )
 
@@ -122,14 +123,14 @@ class UserLogin(BaseModel):
         ...,
         min_length=3,
         max_length=50,
-        example="johndoe",
+        examples=["johndoe"],
         description="Username or email"
     )
     password: str = Field(
         ...,
         min_length=8,
         max_length=128,
-        example="SecurePass123!",
+        examples=["SecurePass123!"],
         description="Password"
     )
 
@@ -148,26 +149,26 @@ class UserUpdate(BaseModel):
         None,
         min_length=1,
         max_length=50,
-        example="John",
+        examples=["John"],
         description="User's first name"
     )
     last_name: Optional[str] = Field(
         None,
         min_length=1,
         max_length=50,
-        example="Doe",
+        examples=["Doe"],
         description="User's last name"
     )
     email: Optional[EmailStr] = Field(
         None,
-        example="john.doe@example.com",
+        examples=["john.doe@example.com"],
         description="User's email address"
     )
     username: Optional[str] = Field(
         None,
         min_length=3,
         max_length=50,
-        example="johndoe",
+        examples=["johndoe"],
         description="User's unique username"
     )
 
@@ -186,21 +187,21 @@ class PasswordUpdate(BaseModel):
         ...,
         min_length=8,
         max_length=128,
-        example="OldPass123!",
+        examples=["OldPass123!"],
         description="Current password"
     )
     new_password: str = Field(
         ...,
         min_length=8,
         max_length=128,
-        example="NewPass123!",
+        examples=["NewPass123!"],
         description="New password"
     )
     confirm_new_password: str = Field(
         ...,
         min_length=8,
         max_length=128,
-        example="NewPass123!",
+        examples=["NewPass123!"],
         description="Confirm new password"
     )
 

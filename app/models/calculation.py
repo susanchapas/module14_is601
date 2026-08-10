@@ -14,14 +14,17 @@ These models are designed for a calculator application that supports
 basic mathematical operations: addition, subtraction, multiplication, and division.
 """
 
-from collections import Counter
 import uuid
+from collections import Counter
 from typing import Any, Dict, List
-from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Float
+
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship, declared_attr
+from sqlalchemy.orm import declared_attr, relationship
+
 from app.core.datetime_utils import utcnow
 from app.database import Base
+
 
 class AbstractCalculation:
     """

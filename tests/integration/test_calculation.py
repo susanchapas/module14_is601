@@ -1,13 +1,15 @@
-import pytest
 import uuid
 
+import pytest
+
 from app.models.calculation import (
-    Calculation,
     Addition,
-    Subtraction,
-    Multiplication,
+    Calculation,
     Division,
+    Multiplication,
+    Subtraction,
 )
+
 
 # Helper function to create a dummy user_id for testing.
 def dummy_user_id():

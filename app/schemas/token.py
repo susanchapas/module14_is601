@@ -1,8 +1,10 @@
 # app/schemas/token.py
+from datetime import datetime
 from enum import Enum
 from uuid import UUID
-from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
+
 
 class TokenType(str, Enum):
     """Valid token types."""

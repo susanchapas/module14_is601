@@ -18,7 +18,7 @@ The BREAD pattern is a variation of CRUD that is more user-centric:
 
 - **Browse**: List or search for resources (GET /calculations)
 - **Read**: Retrieve a specific resource (GET /calculations/{id})
-- **Edit**: Update an existing resource (PUT /calculations/{id})
+- **Edit**: Update an existing resource (PUT /calculations/{id} to replace, PATCH to update partially)
 - **Add**: Create a new resource (POST /calculations)
 - **Delete**: Remove a resource (DELETE /calculations/{id})
 
@@ -109,21 +109,77 @@ def get_calculation(
 
 ### Edit (Update) Calculation
 
+`PUT` and `PATCH` are both offered, and they mean different things. The
+difference is carried entirely by the schema each one accepts:
+
 ```python
+# Edit / Update a Calculation (full replace)
 @app.put("/calculations/{calc_id}", response_model=CalculationResponse, tags=["calculations"])
 def update_calculation(
     calc_id: str,
-    calculation_update: CalculationUpdate,
+    calculation_replace: CalculationReplace,   # inputs REQUIRED
     current_user = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    Update the inputs (and thus the result) of a specific calculation.
+    Replace the inputs (and thus the result) of a specific calculation.
+
+    The inputs are the whole of what a calculation stores, so a full replace
+    requires them; omitting them is a 422 rather than a silent no-op. Use PATCH
+    for a partial update.
+    """
+    calculation = _get_owned_calculation(calc_id, current_user, db)
+    return _apply_calculation_update(calculation, calculation_replace, db)
+
+
+# Edit / Update a Calculation (partial)
+@app.patch("/calculations/{calc_id}", response_model=CalculationResponse, tags=["calculations"])
+def partially_update_calculation(
+    calc_id: str,
+    calculation_update: CalculationUpdate,     # inputs OPTIONAL
+    current_user = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Partially update a specific calculation.
+
+    Fields omitted from the request body are left unchanged, so sending an empty
+    body is a no-op that returns the calculation as-is.
+    """
+    calculation = _get_owned_calculation(calc_id, current_user, db)
+    return _apply_calculation_update(calculation, calculation_update, db)
+```
+
+| | `PUT` | `PATCH` |
+|---|---|---|
+| Schema | `CalculationReplace` | `CalculationUpdate` |
+| `inputs` | Required | Optional |
+| Empty body | `422 Unprocessable Entity` | `200`, nothing changed |
+
+Both handlers were once byte-identical, both taking `CalculationUpdate`. `PUT`
+was documented as a full replace but behaved as a partial one, so omitting
+`inputs` silently did nothing instead of failing. Making the *schema* enforce
+the distinction is what makes the two verbs actually differ — the handler
+bodies stay one line each.
+
+### The shared helpers
+
+Both routes delegate to two helpers, which is why neither repeats the lookup or
+the recompute:
+
+```python
+def _get_owned_calculation(calc_id: str, current_user, db: Session) -> Calculation:
+    """
+    Fetch a calculation by UUID, scoped to the current user.
+
+    Raises:
+        HTTPException: 400 if the id is not a valid UUID, 404 if the calculation
+            does not exist or belongs to a different user.
     """
     try:
         calc_uuid = UUID(calc_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid calculation id format.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid calculation id format.") from e
 
     calculation = db.query(Calculation).filter(
         Calculation.id == calc_uuid,
@@ -132,15 +188,41 @@ def update_calculation(
     if not calculation:
         raise HTTPException(status_code=404, detail="Calculation not found.")
 
-    if calculation_update.inputs is not None:
-        calculation.inputs = calculation_update.inputs
-        calculation.result = calculation.get_result()
+    return calculation
 
-    calculation.updated_at = datetime.utcnow()
+
+def _apply_calculation_update(calculation, calculation_update, db) -> Calculation:
+    """
+    Apply updated inputs to a calculation and recompute its result.
+
+    With no inputs supplied there is nothing to change, so the calculation is
+    returned untouched and updated_at keeps its stored value.
+    """
+    if calculation_update.inputs is None:
+        return calculation
+
+    calculation.inputs = calculation_update.inputs
+    try:
+        calculation.result = calculation.get_result()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
     db.commit()
     db.refresh(calculation)
     return calculation
 ```
+
+Two details worth calling out:
+
+- **The early return matters.** Without `if calculation_update.inputs is None:
+  return calculation`, an empty `PATCH` still fell through to `db.commit()` and
+  bumped `updated_at` — so a request that changed nothing reported that the row
+  had just been modified.
+- **`updated_at` is not set by hand.** The column carries
+  `onupdate=utcnow`, so SQLAlchemy maintains it. Assigning
+  `datetime.utcnow()` in the route, as an earlier version did, both duplicated
+  that and stored a *naive* datetime in a timezone-aware column.
 
 ### Delete Calculation
 

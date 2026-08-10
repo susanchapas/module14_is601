@@ -107,29 +107,59 @@ Create a configuration module in `app/core/config.py`:
 
 ```python
 import os
-from pydantic import BaseSettings
 from functools import lru_cache
 
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
 class Settings(BaseSettings):
-    """Application settings."""
     # Database settings
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/calculator"
-    
-    # JWT settings
-    JWT_SECRET_KEY: str = "your-secret-key"  # Change in production!
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/fastapi_db"
+    TEST_DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/fastapi_test_db"
+
+    # JWT Settings
+    #
+    # Deliberately no defaults: a missing value must fail loudly at startup
+    # rather than yield a working app signed with a public, well-known key.
+    JWT_SECRET_KEY: str
+    JWT_REFRESH_SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+
+    # Security
+    BCRYPT_ROUNDS: int = 12
+
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Get application settings from environment variables or .env file."""
+    """Return the one Settings instance the whole application reads from."""
     return Settings()
 ```
+
+Three things to note:
+
+- **`BaseSettings` comes from `pydantic_settings`**, not from `pydantic`. It
+  moved out into its own package in Pydantic v2.
+- **`model_config = SettingsConfigDict(...)`** replaces the v1 inner
+  `class Config`.
+- **The two JWT secrets have no default.** A default here is a trap: a missing
+  environment variable would yield an app that starts happily and signs its
+  tokens with a value anyone can read in the repository. With no default,
+  `Settings()` raises a `ValidationError` naming the missing keys instead.
+  Copy `.env.example` to `.env` and generate real values:
+
+  ```bash
+  cp .env.example .env
+  python -c "import secrets; print(secrets.token_urlsafe(32))"
+  ```
+
+`get_settings()` is the single accessor, and `lru_cache` makes it return the
+same instance every time. Do not add a module-level `settings = Settings()`
+alongside it — that creates a *second*, independent instance, and then which
+configuration you get depends on which import a module happened to use.
 
 ## Next Steps
 

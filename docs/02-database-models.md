@@ -18,14 +18,13 @@ First, let's create a database connection module in `app/database.py`:
 
 ```python
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.core.config import get_settings
 
-settings = get_settings()
+SQLALCHEMY_DATABASE_URL = get_settings().DATABASE_URL
 
-engine = create_engine(settings.DATABASE_URL)
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -47,6 +46,44 @@ This module:
 3. Creates a Base class for our models to inherit from
 4. Provides a dependency function for getting a database session
 
+> **Import `declarative_base` from `sqlalchemy.orm`.** The old location,
+> `sqlalchemy.ext.declarative`, still works in SQLAlchemy 2.x but raises a
+> `MovedIn20Warning`.
+
+Note also that `get_db()` only *closes* the session; it does not commit. Any
+route that writes must call `db.commit()` itself, or the transaction is rolled
+back when the session closes.
+
+## One Clock for Every Timestamp
+
+Before the models, one small module — `app/core/datetime_utils.py`:
+
+```python
+from datetime import datetime, timezone
+
+
+def utcnow() -> datetime:
+    """Return the current time as a timezone-aware UTC datetime."""
+    return datetime.now(timezone.utc)
+```
+
+Every model reads the current time from here, and every timestamp column is
+declared `DateTime(timezone=True)`. That uniformity is the point.
+
+Two reasons it is worth a module of its own:
+
+1. **`datetime.utcnow()` returns a *naive* datetime** — one with no `tzinfo` —
+   despite the name. It is also deprecated from Python 3.12. Mixing naive and
+   aware datetimes means comparisons between them raise `TypeError`, and code
+   written to defend against that (`if x.tzinfo is None: ...`) quietly takes
+   the wrong branch when the value turns out to be aware after all. That is
+   exactly how this project once ended up reporting a 30-minute token as
+   expiring in 15.
+2. **A single definition cannot drift.** When `User` used
+   `datetime.now(timezone.utc)` and `Calculation` used `datetime.utcnow()`, the
+   two models disagreed about what "now" meant, and nothing in the type system
+   said so.
+
 ## Creating the User Model
 
 Now, let's create the User model in `app/models/user.py`:
@@ -60,13 +97,10 @@ from sqlalchemy import Column, String, Boolean, DateTime, or_
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
 from app.core.config import get_settings
+from app.core.datetime_utils import utcnow
 from app.database import Base
 
 settings = get_settings()
-
-def utcnow():
-    """Helper function to get current UTC datetime"""
-    return datetime.now(timezone.utc)
 
 class User(Base):
     """User model with authentication and token management capabilities."""
@@ -102,13 +136,15 @@ For our calculation model, we'll use SQLAlchemy's polymorphic inheritance to cre
 
 ```python
 # app/models/calculation.py
-from datetime import datetime
 import uuid
-from typing import List
-from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Float
+from collections import Counter
+from typing import Any, Dict, List
+
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship, declared_attr
-from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.orm import declared_attr, relationship
+
+from app.core.datetime_utils import utcnow
 from app.database import Base
 
 class AbstractCalculation:
@@ -160,18 +196,29 @@ class AbstractCalculation:
 
     @declared_attr
     def created_at(cls):
+        """
+        Timestamp when the calculation was created.
+
+        Automatically set to the current time when inserted. Stored
+        timezone-aware, like every other timestamp in the application.
+        """
         return Column(
-            DateTime, 
-            default=datetime.utcnow,
+            DateTime(timezone=True),
+            default=utcnow,
             nullable=False
         )
 
     @declared_attr
     def updated_at(cls):
+        """
+        Timestamp when the calculation was last updated.
+
+        Automatically updated to the current time when the record changes.
+        """
         return Column(
-            DateTime, 
-            default=datetime.utcnow,
-            onupdate=datetime.utcnow,
+            DateTime(timezone=True),
+            default=utcnow,
+            onupdate=utcnow,
             nullable=False
         )
 

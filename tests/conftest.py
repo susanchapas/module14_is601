@@ -1,22 +1,22 @@
+import logging
 import os
 import socket
 import subprocess
 import sys
 import time
-import logging
-from typing import Generator, Dict, List
 from contextlib import contextmanager
+from typing import Dict, Generator, List
 
 import pytest
 import requests
 from faker import Faker
-from sqlalchemy.orm import Session
+from playwright.sync_api import Browser, sync_playwright
 from sqlalchemy.exc import SQLAlchemyError
-from playwright.sync_api import sync_playwright, Browser, Page
+from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.database import Base, get_engine, get_sessionmaker
 from app.models.user import User
-from app.core.config import get_settings
 
 settings = get_settings()
 

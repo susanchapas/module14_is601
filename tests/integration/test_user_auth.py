@@ -1,10 +1,10 @@
 # tests/integration/test_user_auth.py
 
+
 import pytest
-from uuid import UUID
-import pydantic_core
-from sqlalchemy.exc import IntegrityError
+
 from app.models.user import User
+
 
 def test_password_hashing(db_session, fake_user_data):
     """Test password hashing and verification functionality"""
@@ -71,9 +71,9 @@ def test_user_authentication(db_session, fake_user_data):
     """Test user authentication and token generation"""
     # Use fake_user_data from fixture
     fake_user_data['password'] = "TestPass123"
-    user = User.register(db_session, fake_user_data)
+    User.register(db_session, fake_user_data)
     db_session.commit()
-    
+
     # Test successful authentication
     auth_result = User.authenticate(
         db_session,
@@ -95,7 +95,7 @@ def test_user_last_login_update(db_session, fake_user_data):
     
     # Authenticate and check last_login
     assert user.last_login is None
-    auth_result = User.authenticate(db_session, fake_user_data['username'], "TestPass123")
+    User.authenticate(db_session, fake_user_data['username'], "TestPass123")
     db_session.refresh(user)
     assert user.last_login is not None
 
@@ -163,9 +163,9 @@ def test_token_creation_and_verification(db_session, fake_user_data):
 def test_authenticate_with_email(db_session, fake_user_data):
     """Test authentication using email instead of username"""
     fake_user_data['password'] = "TestPass123"
-    user = User.register(db_session, fake_user_data)
+    User.register(db_session, fake_user_data)
     db_session.commit()
-    
+
     # Test authentication with email
     auth_result = User.authenticate(
         db_session,

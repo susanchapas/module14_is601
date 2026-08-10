@@ -7,12 +7,13 @@ field on the resulting UserResponse is a placeholder by design, so the tests
 assert exactly that.
 """
 
-import pytest
 from uuid import uuid4
+
+import pytest
 from fastapi import HTTPException, status
 from jose import jwt
 
-from app.auth.dependencies import get_current_user, get_current_active_user
+from app.auth.dependencies import get_current_active_user, get_current_user
 from app.core.config import get_settings
 from app.models.user import User
 from app.schemas.user import UserResponse
