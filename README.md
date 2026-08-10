@@ -32,9 +32,11 @@ front end, and a CI/CD pipeline that tests, scans, and publishes a Docker image.
 - **BREAD endpoints** for calculations, scoped to the authenticated user
 - Four operation types: `addition`, `subtraction`, `multiplication`, `division`
 - JWT authentication (register, login, bearer-token protected routes)
+- User profile page: view and edit account details, change password
+- Calculation history summary: totals, average operand count, per-type breakdown
 - Server-rendered UI with forms for every BREAD operation
 - Shared client-side validation (numeric checks, operation types, divide-by-zero)
-- 309 automated tests: unit, integration, API end-to-end, and Playwright browser tests
+- 310 automated tests: unit, integration, API end-to-end, and Playwright browser tests
 
 ## Tech Stack
 
@@ -208,6 +210,7 @@ operate only on the authenticated user's own records.
 | Operation  | Method & Path              | Success | Description                                   |
 | ---------- | -------------------------- | ------- | --------------------------------------------- |
 | **Browse** | `GET /calculations`        | 200     | List all of the current user's calculations   |
+| —          | `GET /calculations/stats`  | 200     | History summary: totals, averages, per-type counts |
 | **Read**   | `GET /calculations/{id}`   | 200     | Retrieve one calculation by UUID              |
 | **Edit**   | `PUT /calculations/{id}`   | 200     | Replace the inputs and recompute the result   |
 | **Edit**   | `PATCH /calculations/{id}` | 200     | Partial update; omitted fields are unchanged  |
@@ -222,6 +225,14 @@ operate only on the authenticated user's own records.
 | `POST /auth/login`    | Log in with JSON, returns access + refresh    |
 | `POST /auth/token`    | OAuth2 form login (used by Swagger UI)        |
 | `GET /health`         | Health check, returns `{"status": "ok"}`      |
+
+### User profile
+
+| Method & Path            | Description                                       |
+| ------------------------ | ------------------------------------------------- |
+| `GET /users/me`          | Current user's profile                            |
+| `PUT /users/me`          | Update first name, last name, email, or username  |
+| `POST /users/me/password`| Change password (requires the current password)   |
 
 ### Error responses
 
@@ -264,7 +275,8 @@ curl http://localhost:8000/calculations -H "Authorization: Bearer $TOKEN"
 | `/`                         | —               | Landing page                                  |
 | `/register`                 | —               | Account registration form                     |
 | `/login`                    | —               | Login form                                    |
-| `/dashboard`                | Browse + Add    | History table and the new-calculation form    |
+| `/dashboard`                | Browse + Add    | History table, summary card, new-calculation form |
+| `/profile`                  | —               | Account details and password change form      |
 | `/dashboard/view/{id}`      | Read + Delete   | Calculation details, with a Delete button     |
 | `/dashboard/edit/{id}`      | Edit            | Update inputs, with a live result preview     |
 
