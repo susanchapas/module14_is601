@@ -21,10 +21,13 @@ front end, and a CI/CD pipeline that tests, scans, and publishes a Docker image.
 - [BREAD API Reference](#bread-api-reference)
 - [Front-End Pages](#front-end-pages)
 - [Validation Rules](#validation-rules)
+- [Security](#security)
 - [Docker](#docker)
 - [CI/CD Pipeline](#cicd-pipeline)
 - [Configuration](#configuration)
+- [Beyond the Requirements](#beyond-the-requirements)
 - [Troubleshooting](#troubleshooting)
+- [Reflection](#reflection)
 
 ---
 
@@ -37,7 +40,7 @@ front end, and a CI/CD pipeline that tests, scans, and publishes a Docker image.
 - Calculation history summary: totals, average operand count, per-type breakdown
 - Server-rendered UI with forms for every BREAD operation
 - Shared client-side validation (numeric checks, operation types, divide-by-zero)
-- 310 automated tests: unit, integration, API end-to-end, and Playwright browser tests
+- 283 automated tests: unit, integration, API end-to-end, and Playwright browser tests
 
 ## Tech Stack
 
@@ -276,6 +279,7 @@ operate only on the authenticated user's own records.
 | `POST /auth/register` | Create an account (201)                      |
 | `POST /auth/login`    | Log in with JSON, returns access + refresh    |
 | `POST /auth/token`    | OAuth2 form login (used by Swagger UI)        |
+| `POST /auth/refresh`  | Exchange a refresh token for a new access token |
 | `GET /health`         | Health check, returns `{"status": "ok"}`      |
 
 ### User profile
@@ -346,6 +350,23 @@ Pydantic rules:
 - **Division by zero** is blocked before the request is sent
 - Operation type is constrained to the four supported types (dropdown + enum)
 - The operation type is read-only when editing an existing calculation
+
+---
+
+## Security
+
+| Measure | Where | Detail |
+| ------- | ----- | ------ |
+| **Password hashing** | [`app/auth/jwt.py`](app/auth/jwt.py) | bcrypt via passlib, cost factor `BCRYPT_ROUNDS` (default 12). Plaintext passwords are never stored or logged. |
+| **Password policy** | [`app/schemas/user.py`](app/schemas/user.py) | Minimum 8 characters, and at least one uppercase, one lowercase, one digit, and one special character. Enforced by one shared validator, so registration and password-change cannot drift apart. |
+| **JWT authentication** | [`app/auth/dependencies.py`](app/auth/dependencies.py) | Short-lived access tokens (30 min) plus longer refresh tokens (7 days), signed with **separate** secrets so a leaked access-token key cannot mint refresh tokens. Token type is verified on decode, so a refresh token is rejected where an access token is required. |
+| **No default secrets** | [`app/core/config.py`](app/core/config.py) | `JWT_SECRET_KEY` and `JWT_REFRESH_SECRET_KEY` have no defaults. A missing value fails at startup instead of silently signing tokens with a value published in this repository. |
+| **Ownership scoping** | [`app/main.py`](app/main.py) | Every calculation query filters on `user_id == current_user.id`. Requesting another user's calculation returns **404**, not 403, so the API does not confirm that the record exists. |
+| **Input validation** | Pydantic v2 schemas | Types, operand counts, and divide-by-zero are rejected at the schema boundary with 422 before any database or arithmetic work happens. Validation is server-side; the client-side checks are a convenience, not the control. |
+| **SQL injection** | SQLAlchemy ORM | All access goes through the ORM's parameterized queries. No string-built SQL anywhere in `app/`. |
+| **Container hardening** | [`Dockerfile`](Dockerfile) | Runs as a non-root `appuser` on a slim base image, with a `HEALTHCHECK` against `/health`. |
+| **Dependency scanning** | [CI](.github/workflows/test.yml) | Trivy scans the built image on every push and **fails the build** on `CRITICAL` or `HIGH` vulnerabilities. |
+| **Secret hygiene** | `.gitignore` | `.env` is never committed. [`.env.example`](.env.example) documents every variable with placeholder values only. |
 
 ---
 
@@ -447,6 +468,28 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # for each key
 
 ---
 
+## Beyond the Requirements
+
+The base assignment is BREAD + JWT + tests + CI/CD. These went past it:
+
+**Application**
+
+- **`GET /calculations/stats`** — a history summary endpoint (totals, average operand count, per-type breakdown), surfaced as a live card on the dashboard. Registered *before* `/calculations/{calc_id}` so the router matches `stats` as a literal rather than as a malformed UUID.
+- **`POST /auth/refresh`** — access tokens expire in 30 minutes; this exchanges a still-valid refresh token for a new access token so the user is not logged out mid-session.
+- **Full profile management** — view and edit account details, plus a password change that requires the current password.
+- **Live result preview** on the edit page: the computed result updates as inputs are typed, before anything is submitted.
+
+**Engineering**
+
+- **Ruff in CI**, gating the build before tests run. It is what caught the duplicate imports and several unused ones during cleanup.
+- **Deprecation warnings are errors** (`error::DeprecationWarning` in `pytest.ini`). Third-party noise gets narrow, specific ignores rather than one blanket suppression, so the project's own deprecated calls cannot hide.
+- **Trivy image scanning** that fails the pipeline on `CRITICAL`/`HIGH` findings, and a **multi-arch** (`linux/amd64` + `linux/arm64`) image published to Docker Hub.
+- **A test database that cannot eat production data** — `conftest.py` refuses to start if `TEST_DATABASE_URL` and `DATABASE_URL` name the same database, because the suite drops every table in it.
+- **Custom pytest flags** — `--preserve-db` keeps test data for post-mortem inspection, `--run-slow` opts into the expensive tests that are skipped by default.
+- **`Dockerfile.postgres`** bakes `init-db.sh` into the database image, so the test database is created automatically and the stack needs **no host bind mounts** — which is what makes it work unmodified on macOS, where Docker cannot mount from `~/Desktop`.
+
+---
+
 ## Troubleshooting
 
 **`operation not permitted` on a mount path (macOS)**
@@ -478,3 +521,90 @@ The browser was never downloaded. Run `playwright install chromium`.
 **Dependency installation fails to build wheels**
 Use Python 3.10–3.12. Newer versions may lack prebuilt wheels for the pinned
 dependency versions.
+
+---
+
+## Reflection
+
+### A green test suite is not the same as working code
+
+The most useful thing I did on this project was stop adding features and audit
+what I had already written. The suite was green and coverage was 84%, which felt
+like evidence that the application worked. It was not. Reading the code against a
+live client turned up four real defects that every test had passed straight over:
+
+| Bug | What was actually wrong |
+| --- | --- |
+| Token expiry | The route recomputed `expires_at` as `now + 15min` instead of using the configured value, so clients were told their 30-minute token lasted 15. |
+| Missing commit | `POST /auth/token` flushed the `last_login` update but never committed it, so the write was rolled back when the session closed. |
+| `PATCH` no-op | An empty body still bumped `updated_at` and committed, contradicting the endpoint's own docstring. |
+| Nullable mismatch | The `result` column was `nullable=True` but the response schema required a `float`. One NULL row would have turned `GET /calculations` into an HTTP 500. |
+
+The pattern connecting all four is that my tests asserted status codes and
+response shapes. Every one of these bugs produces a 200 with a well-formed body.
+The expiry bug returns a perfectly valid number — just the wrong one. I now think
+of a test that only checks the status code as barely a test at all; the assertion
+has to name the value I actually care about.
+
+### The worst thing I found was a passing test
+
+`test_dependencies.py` mocked `verify_token` to return a dictionary and then
+asserted on how the code handled that dictionary. But `verify_token` only ever
+returns a `UUID` or `None`. The branch under test could not execute in
+production, and the mock was the only reason it looked covered. Meanwhile the
+real `UUID` path had no test at all.
+
+That inverted my understanding of what mocks cost. The mock had quietly become
+the specification, and because it disagreed with the real function, the test was
+protecting dead code while leaving live code exposed. Coverage counted those
+lines as green, which made the number actively misleading. Now I check that a
+mock's return type matches the real function's signature before I trust anything
+built on it.
+
+### Deleting code was the highest-value work
+
+Roughly 200 lines had no caller: an entire `redis.py` module, a `decode_token`
+helper nothing imported, orphaned schemas, and a `refresh_token` the front end
+dutifully stored in `localStorage` with no endpoint that would accept it. The
+last one was the clearest lesson — an unusable credential sitting in browser
+storage is strictly worse than not issuing one, because it is pure attack surface
+with zero benefit. I resolved it by building the `/auth/refresh` endpoint that
+should have existed from the start.
+
+I also found two competing password policies. `schemas/base.py` and
+`schemas/user.py` both defined `UserCreate`, and only the second required a
+special character. Nothing but a test imported the weaker one, but having two
+"sources of truth" for a security rule is exactly how the wrong one eventually
+gets wired up. Duplication is not just extra lines to maintain; when the copies
+disagree about something that matters, it is a latent vulnerability.
+
+### What I would do differently
+
+- **Write the shared helper first.** I ended up with ~1,450 lines of inline
+  `<script>` across eight templates, including eleven near-identical
+  `fetch` + bearer-token + redirect-on-401 blocks. Extracting `apiFetch` into
+  `script.js` afterwards was mechanical but tedious, and it would have cost
+  nothing on day one. Copy-paste felt faster each individual time and was much
+  slower in aggregate.
+- **Turn on the linter and the warning filters at the start.** `pytest.ini` was
+  suppressing every `DeprecationWarning`, which hid a pile of Pydantic v1 calls
+  and deprecated `datetime.utcnow()` usage. Both tools took one config file each
+  and immediately found real problems. Adding them at the end meant fixing a
+  backlog instead of never creating one.
+- **Pick timezone-aware datetimes once and never mix.** `User` used aware
+  datetimes and `Calculation` used naive ones. That inconsistency is the root
+  cause of the token-expiry bug: a `tzinfo is None` guard that could never fire
+  sent every request down the wrong branch. Two conventions in one codebase means
+  every comparison between them is a bug waiting for the right input.
+- **Have CI report one honest number.** The pipeline ran `pytest` three times
+  with `--cov=app`, so each pass overwrote the last and only the e2e coverage
+  survived. The reported figure was not wrong so much as meaningless — a metric
+  nobody had checked the provenance of.
+
+### Where it ended up
+
+283 tests, 89% coverage, a clean `ruff` run, and no deprecation warnings from
+first-party code. The number I trust most is not the coverage percentage, though,
+but the fact that the four regression tests written for the bugs above fail
+loudly if anyone reintroduces them. Coverage says which lines ran. Only an
+assertion about a specific value says the line was *right*.
