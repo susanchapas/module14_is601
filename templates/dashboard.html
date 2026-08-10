@@ -195,28 +195,7 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  // Check if user is logged in
-  const token = localStorage.getItem('access_token');
-  if (!token) {
-    window.location.href = '/login';
-    return;
-  }
-
-  // Display welcome message in layout nav
-  const username = localStorage.getItem('username') || "User";
-  const layoutWelcome = document.getElementById('layoutUserWelcome');
-  if (layoutWelcome) layoutWelcome.textContent = `Welcome, ${username}!`;
-
-  // Attach logout logic
-  const layoutLogoutBtn = document.getElementById('layoutLogoutBtn');
-  if (layoutLogoutBtn) {
-    layoutLogoutBtn.addEventListener('click', () => {
-      if (confirm('Are you sure you want to logout?')) {
-        localStorage.clear();
-        window.location.href = '/login';
-      }
-    });
-  }
+  if (!window.requireLogin()) return;
 
   // Alert helper functions
   function showError(msg) {
@@ -260,16 +239,10 @@ document.addEventListener('DOMContentLoaded', function() {
   // Load the usage summary from the API
   async function loadStats() {
     try {
-      const response = await fetch('/calculations/stats', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await window.apiFetch('/calculations/stats');
+      if (!response) return;
 
       if (!response.ok) {
-        if (response.status === 401) {
-          localStorage.clear();
-          window.location.href = '/login';
-          return;
-        }
         throw new Error('Failed to load usage summary');
       }
 
@@ -303,16 +276,10 @@ document.addEventListener('DOMContentLoaded', function() {
       // Show loading indicator
       document.getElementById('loadingRow')?.classList.remove('hidden');
       
-      const response = await fetch('/calculations', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
+      const response = await window.apiFetch('/calculations');
+      if (!response) return;
+
       if (!response.ok) {
-        if (response.status === 401) {
-          localStorage.clear();
-          window.location.href = '/login';
-          return;
-        }
         throw new Error('Failed to load calculations');
       }
 
@@ -411,17 +378,10 @@ document.addEventListener('DOMContentLoaded', function() {
           e.target.closest('.delete-calc').disabled = true;
           
           try {
-            const delResp = await fetch(`/calculations/${calcId}`, {
-              method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
-            
+            const delResp = await window.apiFetch(`/calculations/${calcId}`, { method: 'DELETE' });
+            if (!delResp) return;
+
             if (!delResp.ok) {
-              if (delResp.status === 401) {
-                localStorage.clear();
-                window.location.href = '/login';
-                return;
-              }
               throw new Error('Failed to delete calculation');
             }
             
@@ -510,22 +470,13 @@ document.addEventListener('DOMContentLoaded', function() {
     submitButton.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Calculating...';
 
     try {
-      const response = await fetch('/calculations', {
+      const response = await window.apiFetch('/calculations', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify(newCalc)
       });
-      
+      if (!response) return;
+
       if (!response.ok) {
-        if (response.status === 401) {
-          localStorage.clear();
-          window.location.href = '/login';
-          return;
-        }
-        
         const errorData = await response.json().catch(() => ({}));
         throw new Error(window.extractErrorMessage(errorData, 'Failed to create calculation'));
       }

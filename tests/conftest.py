@@ -16,7 +16,9 @@ from playwright.sync_api import sync_playwright, Browser, Page
 
 from app.database import Base, get_engine, get_sessionmaker
 from app.models.user import User
-from app.core.config import settings
+from app.core.config import get_settings
+
+settings = get_settings()
 
 # ======================================================================================
 # Logging Configuration
@@ -143,13 +145,24 @@ def fake_user_data() -> Dict[str, str]:
     """Provide fake user data."""
     return create_fake_user()
 
+def build_user(user_data: Dict[str, str]) -> User:
+    """
+    Build a user whose stored password is hashed, as the application stores it.
+
+    User.__init__ writes whatever it is given straight to the column, so passing
+    the plain password would save it verbatim and verify_password would never
+    match. The plain password is kept on the instance so tests can log in as it.
+    """
+    user = User(**{**user_data, "password": User.hash_password(user_data["password"])})
+    user.plain_password = user_data["password"]
+    return user
+
 @pytest.fixture
 def test_user(db_session: Session) -> User:
     """
     Create and return a single test user in the database.
     """
-    user_data = create_fake_user()
-    user = User(**user_data)
+    user = build_user(create_fake_user())
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -163,7 +176,7 @@ def seed_users(db_session: Session, request) -> List[User]:
     unless a 'param' value is provided (e.g., via @pytest.mark.parametrize).
     """
     num_users = getattr(request, "param", 5)
-    users = [User(**create_fake_user()) for _ in range(num_users)]
+    users = [build_user(create_fake_user()) for _ in range(num_users)]
     db_session.add_all(users)
     db_session.commit()
     logger.info(f"Seeded {len(users)} users.")

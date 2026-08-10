@@ -348,7 +348,6 @@ class User(Base):
         Returns:
             UUID: User ID if token is valid, None otherwise
         """
-        from app.core.config import settings
         from app.schemas.token import TokenType
         from jose import jwt, JWTError
 

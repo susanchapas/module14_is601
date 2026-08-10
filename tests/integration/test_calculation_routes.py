@@ -63,6 +63,19 @@ def test_empty_patch_leaves_updated_at_unchanged(client, db_session, user):
     assert calculation.updated_at == original_updated_at
 
 
+def test_empty_put_is_rejected(client, db_session, user):
+    """
+    PUT replaces the whole calculation, so it cannot accept an empty body.
+
+    PATCH treats the same body as a no-op; the two verbs shared one handler and
+    one schema until the inputs were made required here.
+    """
+    calculation = add_calculation(db_session, user, [1, 2], 3.0)
+
+    response = client.put(f"{CALCULATIONS_URL}/{calculation.id}", json={})
+    assert response.status_code == 422, response.text
+
+
 def test_listing_tolerates_a_null_result(client, db_session, user):
     """
     The result column is nullable, so the response schema must accept null.

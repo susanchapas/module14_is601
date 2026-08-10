@@ -2,9 +2,10 @@
 Integration tests for the GET /calculations/stats endpoint.
 
 These drive the real route through FastAPI against the test database, so they
-cover the things the unit tests cannot: routing, authentication, ownership
-scoping and the response schema. The aggregation rules themselves are covered in
-tests/unit/test_calculation_stats.py.
+cover only what the unit tests cannot: routing, authentication, the response
+schema, ownership scoping and freshness. The aggregation rules themselves belong
+to Calculation.summarize and are covered in tests/unit/test_calculation_stats.py,
+so they are not re-asserted here.
 """
 
 from datetime import datetime
@@ -128,31 +129,6 @@ def test_stats_count_calculations_made_through_the_api(client):
     assert stats["total_calculations"] == 3
     assert stats["counts_by_type"]["addition"] == 3
     assert stats["most_used_type"] == "addition"
-
-
-def test_stats_average_operands_is_rounded(client, db_session, user):
-    """Seven operands over three calculations round to 2.33."""
-    add_calculation(db_session, user, "addition", [1, 2])
-    add_calculation(db_session, user, "addition", [1, 2])
-    add_calculation(db_session, user, "addition", [1, 2, 3])
-
-    assert get_stats(client)["average_operands"] == 2.33
-
-
-def test_stats_break_down_mixed_types(client, db_session, user):
-    """Each type is tallied under its own name."""
-    add_calculation(db_session, user, "addition", [1, 2])
-    add_calculation(db_session, user, "division", [8, 2])
-    add_calculation(db_session, user, "division", [9, 3])
-
-    stats = get_stats(client)
-    assert stats["counts_by_type"] == {
-        "addition": 1,
-        "subtraction": 0,
-        "multiplication": 0,
-        "division": 2,
-    }
-    assert stats["most_used_type"] == "division"
 
 
 def test_stats_report_the_last_calculation_time(client, db_session, user):

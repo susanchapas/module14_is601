@@ -150,12 +150,7 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', async () => {
-  // Check auth token
-  const token = localStorage.getItem('access_token');
-  if (!token) {
-    window.location.href = '/login';
-    return;
-  }
+  if (!window.requireLogin()) return;
 
   // Helper: show/hide alerts
   function showError(message) {
@@ -174,22 +169,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 5000);
   }
   
-  function showSuccess(message) {
-    const successAlert = document.getElementById('successAlert');
-    const successMessage = document.getElementById('successMessage');
-    successMessage.textContent = message;
-    successAlert.classList.remove('hidden');
-    
-    // Smooth fade out
-    setTimeout(() => {
-      successAlert.classList.add('opacity-0');
-      setTimeout(() => {
-        successAlert.classList.add('hidden');
-        successAlert.classList.remove('opacity-0');
-      }, 300);
-    }, 5000);
-  }
-
   // Get calc_id from Jinja
   const calcId = "{{ calc_id }}";
 
@@ -255,17 +234,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('calculationCard').classList.add('hidden');
       document.getElementById('errorState').classList.add('hidden');
       
-      const response = await fetch(`/calculations/${calcId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
+      const response = await window.apiFetch(`/calculations/${calcId}`);
+      if (!response) return;
+
       if (!response.ok) {
-        if (response.status === 401) {
-          localStorage.clear();
-          window.location.href = '/login';
-          return;
-        }
-        
         if (response.status === 404) {
           // Show not found state
           document.getElementById('loadingState').classList.add('hidden');
@@ -339,27 +311,15 @@ document.addEventListener('DOMContentLoaded', async () => {
               deleteBtn.innerHTML = '<svg class="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Deleting...';
               deleteBtn.disabled = true;
               
-              const response = await fetch(`/calculations/${calc.id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-              });
-              
+              const response = await window.apiFetch(`/calculations/${calc.id}`, { method: 'DELETE' });
+              if (!response) return;
+
               if (!response.ok) {
-                if (response.status === 401) {
-                  localStorage.clear();
-                  window.location.href = '/login';
-                  return;
-                }
                 throw new Error('Failed to delete calculation');
               }
-              
-              // Use toast notification if available in layout
-              if (typeof window.showToast === 'function') {
-                window.showToast('Calculation deleted successfully', 'success');
-              } else {
-                showSuccess('Calculation deleted successfully');
-              }
-              
+
+              window.showToast('Calculation deleted successfully', 'success');
+
               // Redirect to dashboard after a brief delay
               setTimeout(() => {
                 window.location.href = '/dashboard';

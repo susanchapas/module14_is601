@@ -34,7 +34,7 @@ import uvicorn  # ASGI server for running FastAPI apps
 from app.auth.dependencies import get_current_active_user, get_current_user_record  # Authentication dependencies
 from app.models.calculation import Calculation  # Database model for calculations
 from app.models.user import User  # Database model for users
-from app.schemas.calculation import CalculationBase, CalculationResponse, CalculationStats, CalculationUpdate  # API request/response schemas
+from app.schemas.calculation import CalculationBase, CalculationReplace, CalculationResponse, CalculationStats, CalculationUpdate  # API request/response schemas
 from app.schemas.token import AccessTokenResponse, RefreshRequest, TokenResponse, TokenType  # API token schemas
 from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate, PasswordUpdate  # User schemas
 from app.database import Base, get_db, engine  # Database connection
@@ -479,15 +479,19 @@ def get_calculation(
 @app.put("/calculations/{calc_id}", response_model=CalculationResponse, tags=["calculations"])
 def update_calculation(
     calc_id: str,
-    calculation_update: CalculationUpdate,
+    calculation_replace: CalculationReplace,
     current_user = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    Update the inputs (and thus the result) of a specific calculation.
+    Replace the inputs (and thus the result) of a specific calculation.
+
+    The inputs are the whole of what a calculation stores, so a full replace
+    requires them; omitting them is a 422 rather than a silent no-op. Use PATCH
+    for a partial update.
     """
     calculation = _get_owned_calculation(calc_id, current_user, db)
-    return _apply_calculation_update(calculation, calculation_update, db)
+    return _apply_calculation_update(calculation, calculation_replace, db)
 
 
 # Edit / Update a Calculation (partial)

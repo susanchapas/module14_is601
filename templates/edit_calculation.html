@@ -217,12 +217,7 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', async () => {
-  // Retrieve token
-  const token = localStorage.getItem('access_token');
-  if (!token) {
-    window.location.href = '/login';
-    return;
-  }
+  if (!window.requireLogin()) return;
 
   // Helper for alerts
   function showError(message) {
@@ -244,25 +239,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     errorAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   
-  function showSuccess(message) {
-    const successAlert = document.getElementById('successAlert');
-    const successMessage = document.getElementById('successMessage');
-    successMessage.textContent = message;
-    successAlert.classList.remove('hidden');
-    
-    // Smooth fade out
-    setTimeout(() => {
-      successAlert.classList.add('opacity-0');
-      setTimeout(() => {
-        successAlert.classList.add('hidden');
-        successAlert.classList.remove('opacity-0');
-      }, 300);
-    }, 5000);
-    
-    // Scroll to the success message if needed
-    successAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
   // Get calc ID from Jinja context
   const calcId = "{{ calc_id }}";
   const calcTypeInput = document.getElementById('calcType');
@@ -364,17 +340,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('editCard').classList.add('hidden');
       document.getElementById('errorState').classList.add('hidden');
       
-      const response = await fetch(`/calculations/${calcId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
+      const response = await window.apiFetch(`/calculations/${calcId}`);
+      if (!response) return;
+
       if (!response.ok) {
-        if (response.status === 401) {
-          localStorage.clear();
-          window.location.href = '/login';
-          return;
-        }
-        
         if (response.status === 404) {
           // Show not found state
           document.getElementById('loadingState').classList.add('hidden');
@@ -454,39 +423,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     submitButton.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Saving...';
 
     try {
-      const response = await fetch(`/calculations/${calcId}`, {
+      const response = await window.apiFetch(`/calculations/${calcId}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({ inputs: newInputs })
       });
+      if (!response) return;
 
       if (!response.ok) {
-        if (response.status === 401) {
-          localStorage.clear();
-          window.location.href = '/login';
-          return;
-        } else if (response.status === 404) {
+        if (response.status === 404) {
           throw new Error('Calculation not found.');
         }
-        
+
         // Try to parse any error message from the API
         const errorData = await response.json().catch(() => ({}));
         throw new Error(window.extractErrorMessage(errorData, 'Failed to update calculation'));
       }
       
-      // Get the updated calculation
-      const updatedCalc = await response.json();
+      window.showToast('Calculation updated successfully!', 'success');
 
-      // Use toast notification if available in layout
-      if (typeof window.showToast === 'function') {
-        window.showToast('Calculation updated successfully!', 'success');
-      } else {
-        showSuccess('Calculation updated successfully!');
-      }
-      
       // Update the preview with new data
       updatePreview();
       

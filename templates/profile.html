@@ -216,11 +216,7 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', async () => {
-  const token = localStorage.getItem('access_token');
-  if (!token) {
-    window.location.href = '/login';
-    return;
-  }
+  if (!window.requireLogin()) return;
 
   function showError(message) {
     const errorAlert = document.getElementById('errorAlert');
@@ -241,23 +237,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('successAlert').classList.add('hidden');
   }
 
-  // A 401 anywhere means the session is no longer usable.
-  function handleUnauthorized() {
-    localStorage.clear();
-    window.location.href = '/login';
-  }
-
   async function loadProfile() {
     try {
-      const response = await fetch('/users/me', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await window.apiFetch('/users/me');
+      if (!response) return;
 
       if (!response.ok) {
-        if (response.status === 401) {
-          handleUnauthorized();
-          return;
-        }
         throw new Error('Failed to load profile');
       }
 
@@ -290,12 +275,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     submitButton.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Saving...';
 
     try {
-      const response = await fetch('/users/me', {
+      const response = await window.apiFetch('/users/me', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({
           username: document.getElementById('username').value.trim(),
           email: document.getElementById('email').value.trim(),
@@ -303,12 +284,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           last_name: document.getElementById('last_name').value.trim()
         })
       });
+      if (!response) return;
 
       if (!response.ok) {
-        if (response.status === 401) {
-          handleUnauthorized();
-          return;
-        }
         const errorData = await response.json().catch(() => ({}));
         throw new Error(window.extractErrorMessage(errorData, 'Failed to update profile'));
       }
@@ -357,24 +335,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     submitButton.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Updating...';
 
     try {
-      const response = await fetch('/users/me/password', {
+      const response = await window.apiFetch('/users/me/password', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({
           current_password: currentPassword,
           new_password: newPassword,
           confirm_new_password: confirmNewPassword
         })
       });
+      if (!response) return;
 
       if (!response.ok) {
-        if (response.status === 401) {
-          handleUnauthorized();
-          return;
-        }
         const errorData = await response.json().catch(() => ({}));
         throw new Error(window.extractErrorMessage(errorData, 'Failed to update password'));
       }
@@ -383,10 +354,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       showSuccess('Password updated successfully. Please log in again.');
 
       // The stored credentials are for the old password; force a fresh login.
-      setTimeout(() => {
-        localStorage.clear();
-        window.location.href = '/login';
-      }, 2000);
+      setTimeout(window.endSession, 2000);
     } catch (error) {
       showError(error.message || 'Failed to update password');
     } finally {

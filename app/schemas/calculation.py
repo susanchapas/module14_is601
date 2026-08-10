@@ -189,6 +189,20 @@ class CalculationUpdate(BaseModel):
         json_schema_extra={"example": {"inputs": [42, 7]}}
     )
 
+class CalculationReplace(CalculationUpdate):
+    """
+    Schema for replacing an existing Calculation.
+
+    Same single field as CalculationUpdate, but required: PUT replaces the whole
+    resource, so the client must state the inputs rather than omit them.
+    """
+    inputs: List[float] = Field(
+        ...,
+        description="Full list of numeric inputs to replace the stored ones",
+        example=[42, 7],
+        min_items=2
+    )
+
 class CalculationStats(BaseModel):
     """
     Schema for the usage summary of a user's calculation history.

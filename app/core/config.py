@@ -1,6 +1,6 @@
 # app/config.py
 from functools import lru_cache
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # Database settings (keeping your existing default)
@@ -22,14 +22,9 @@ class Settings(BaseSettings):
     # Security
     BCRYPT_ROUNDS: int = 12
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
-# Create a global settings instance
-settings = Settings()
-
-# Optional: Add cached settings getter
 @lru_cache()
 def get_settings() -> Settings:
+    """Return the one Settings instance the whole application reads from."""
     return Settings()
