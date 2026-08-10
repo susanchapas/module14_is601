@@ -526,85 +526,72 @@ dependency versions.
 
 ## Reflection
 
-### A green test suite is not the same as working code
+The most useful thing I did on this project was stop adding features and go back
+through the code I had already written. The test suite was green and coverage was
+84%, so I assumed things worked. When I read the code while poking at a running
+copy of the app, I found four bugs that every test had passed over:
 
-The most useful thing I did on this project was stop adding features and audit
-what I had already written. The suite was green and coverage was 84%, which felt
-like evidence that the application worked. It was not. Reading the code against a
-live client turned up four real defects that every test had passed straight over:
+- The login route recomputed the token expiry as `now + 15min` instead of using
+  the configured 30 minutes, so clients were told their token expired twice as
+  early as it did.
+- `POST /auth/token` wrote `last_login` but never committed, so the update was
+  rolled back when the session closed.
+- An empty `PATCH` body still bumped `updated_at` and committed, even though the
+  docstring said an empty body should do nothing.
+- The `result` column allowed NULL while the response schema required a float, so
+  one NULL row would have turned `GET /calculations` into a 500.
 
-| Bug | What was actually wrong |
-| --- | --- |
-| Token expiry | The route recomputed `expires_at` as `now + 15min` instead of using the configured value, so clients were told their 30-minute token lasted 15. |
-| Missing commit | `POST /auth/token` flushed the `last_login` update but never committed it, so the write was rolled back when the session closed. |
-| `PATCH` no-op | An empty body still bumped `updated_at` and committed, contradicting the endpoint's own docstring. |
-| Nullable mismatch | The `result` column was `nullable=True` but the response schema required a `float`. One NULL row would have turned `GET /calculations` into an HTTP 500. |
+All four have the same cause on my end. My tests checked status codes and
+response shapes, and every one of these bugs returns a 200 with a well formed
+body. The expiry bug returns a valid timestamp with the wrong value in it. I
+write assertions differently now. If a test only checks that a request returned
+200, it tells me the endpoint exists and very little else.
 
-The pattern connecting all four is that my tests asserted status codes and
-response shapes. Every one of these bugs produces a 200 with a well-formed body.
-The expiry bug returns a perfectly valid number — just the wrong one. I now think
-of a test that only checks the status code as barely a test at all; the assertion
-has to name the value I actually care about.
+The thing that surprised me most was a test that passed. `test_dependencies.py`
+mocked `verify_token` to return a dictionary and then checked how the code
+handled that dictionary. `verify_token` only returns a UUID or `None`, so the
+branch being tested could never run in production. The mock was the only reason
+it counted as covered, and the UUID path that runs on every request had no test
+at all. Coverage reported those lines as green, which made my 84% look better
+than it was. I now check that a mock returns the same type as the function it
+stands in for before I build anything on top of it.
 
-### The worst thing I found was a passing test
+Deleting code turned out to be some of the best work I did. About 200 lines had
+no caller: a whole `redis.py` module, a `decode_token` helper nothing imported,
+unused schemas, and a refresh token the front end saved to `localStorage` even
+though no endpoint accepted it. That last one bothered me the most, since storing
+a credential the app cannot use gives an attacker something to steal for no
+benefit to the user. I fixed it by writing the `/auth/refresh` endpoint I should
+have written in the first place.
 
-`test_dependencies.py` mocked `verify_token` to return a dictionary and then
-asserted on how the code handled that dictionary. But `verify_token` only ever
-returns a `UUID` or `None`. The branch under test could not execute in
-production, and the mock was the only reason it looked covered. Meanwhile the
-real `UUID` path had no test at all.
+I also had two password policies. `schemas/base.py` and `schemas/user.py` both
+defined `UserCreate`, and only one of them required a special character. Only a
+test imported the weaker version, so nothing was broken yet. It would have been
+easy to import the wrong one later and quietly loosen a security rule. Keeping
+one copy of a rule that matters is worth the effort of hunting down the
+duplicates.
 
-That inverted my understanding of what mocks cost. The mock had quietly become
-the specification, and because it disagreed with the real function, the test was
-protecting dead code while leaving live code exposed. Coverage counted those
-lines as green, which made the number actively misleading. Now I check that a
-mock's return type matches the real function's signature before I trust anything
-built on it.
+Four things I would do differently next time:
 
-### Deleting code was the highest-value work
+- Write the shared fetch helper on day one. I ended up with around 1,450 lines of
+  inline `<script>` across eight templates, including eleven copies of the same
+  fetch, bearer token, and redirect on 401 block. Pulling `apiFetch` out into
+  `script.js` afterward was slow and boring, and it would have taken ten minutes
+  at the start.
+- Turn on the linter and the warning filters immediately. `pytest.ini` was
+  silencing every `DeprecationWarning`, which hid a stack of Pydantic v1 calls and
+  deprecated `datetime.utcnow()` usage. Each tool took one config file and found
+  problems the same day I added it.
+- Pick timezone aware datetimes and stick to them. `User` used aware datetimes and
+  `Calculation` used naive ones, and that mismatch is what caused the token expiry
+  bug. A `tzinfo is None` check that could never be true sent every login down the
+  wrong branch.
+- Make CI report one coverage number. The pipeline ran `pytest` three times with
+  `--cov=app`, so each run overwrote the previous one and only the e2e numbers
+  survived. I had been reading that number for weeks without knowing where it came
+  from.
 
-Roughly 200 lines had no caller: an entire `redis.py` module, a `decode_token`
-helper nothing imported, orphaned schemas, and a `refresh_token` the front end
-dutifully stored in `localStorage` with no endpoint that would accept it. The
-last one was the clearest lesson — an unusable credential sitting in browser
-storage is strictly worse than not issuing one, because it is pure attack surface
-with zero benefit. I resolved it by building the `/auth/refresh` endpoint that
-should have existed from the start.
-
-I also found two competing password policies. `schemas/base.py` and
-`schemas/user.py` both defined `UserCreate`, and only the second required a
-special character. Nothing but a test imported the weaker one, but having two
-"sources of truth" for a security rule is exactly how the wrong one eventually
-gets wired up. Duplication is not just extra lines to maintain; when the copies
-disagree about something that matters, it is a latent vulnerability.
-
-### What I would do differently
-
-- **Write the shared helper first.** I ended up with ~1,450 lines of inline
-  `<script>` across eight templates, including eleven near-identical
-  `fetch` + bearer-token + redirect-on-401 blocks. Extracting `apiFetch` into
-  `script.js` afterwards was mechanical but tedious, and it would have cost
-  nothing on day one. Copy-paste felt faster each individual time and was much
-  slower in aggregate.
-- **Turn on the linter and the warning filters at the start.** `pytest.ini` was
-  suppressing every `DeprecationWarning`, which hid a pile of Pydantic v1 calls
-  and deprecated `datetime.utcnow()` usage. Both tools took one config file each
-  and immediately found real problems. Adding them at the end meant fixing a
-  backlog instead of never creating one.
-- **Pick timezone-aware datetimes once and never mix.** `User` used aware
-  datetimes and `Calculation` used naive ones. That inconsistency is the root
-  cause of the token-expiry bug: a `tzinfo is None` guard that could never fire
-  sent every request down the wrong branch. Two conventions in one codebase means
-  every comparison between them is a bug waiting for the right input.
-- **Have CI report one honest number.** The pipeline ran `pytest` three times
-  with `--cov=app`, so each pass overwrote the last and only the e2e coverage
-  survived. The reported figure was not wrong so much as meaningless — a metric
-  nobody had checked the provenance of.
-
-### Where it ended up
-
-283 tests, 89% coverage, a clean `ruff` run, and no deprecation warnings from
-first-party code. The number I trust most is not the coverage percentage, though,
-but the fact that the four regression tests written for the bugs above fail
-loudly if anyone reintroduces them. Coverage says which lines ran. Only an
-assertion about a specific value says the line was *right*.
+The project now has 283 tests, 89% coverage, a clean `ruff` run, and no
+deprecation warnings from my own code. The part I care about most is that each of
+the four bugs above has a regression test written for it, so they fail loudly if I
+ever write them again.
