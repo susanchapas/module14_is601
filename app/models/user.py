@@ -16,27 +16,16 @@ The User model is designed to follow security best practices:
 """
 
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import timedelta
 from sqlalchemy import Column, String, Boolean, DateTime, or_
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
 from app.core.config import get_settings
+from app.core.datetime_utils import utcnow
 from app.database import Base
 from app.models.calculation import Calculation
 
 settings = get_settings()
-
-def utcnow():
-    """
-    Helper function to get current UTC datetime with timezone information.
-    
-    Using timezone-aware datetimes prevents issues with timezone
-    differences and daylight saving time changes.
-    
-    Returns:
-        datetime: Current UTC time with timezone info
-    """
-    return datetime.now(timezone.utc)
 
 class User(Base):
     """
@@ -275,6 +264,9 @@ class User(Base):
             username_or_email: Username or email to authenticate
             password: Password to verify
             
+        The updated last_login is committed here so that every caller persists
+        it, whatever route it came from.
+
         Returns:
             dict: Authentication result with tokens and user data, or None if authentication fails
         """
@@ -287,19 +279,26 @@ class User(Base):
 
         # Update the last_login timestamp
         user.last_login = utcnow()
-        db.flush()
-
-        # Generate tokens
-        access_token = cls.create_access_token({"sub": str(user.id)})
-        refresh_token = cls.create_refresh_token({"sub": str(user.id)})
-        expires_at = utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        db.commit()
 
         return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "bearer",
-            "expires_at": expires_at,
+            **cls.issue_access_token(user),
+            "refresh_token": cls.create_refresh_token({"sub": str(user.id)}),
             "user": user
+        }
+
+    @classmethod
+    def issue_access_token(cls, user) -> dict:
+        """
+        Mint an access token for a user and report when it expires.
+
+        Shared by /auth/login and /auth/refresh so that both report the same
+        lifetime, derived from ACCESS_TOKEN_EXPIRE_MINUTES.
+        """
+        return {
+            "access_token": cls.create_access_token({"sub": str(user.id)}),
+            "token_type": "bearer",
+            "expires_at": utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         }
 
     @classmethod
@@ -333,20 +332,36 @@ class User(Base):
         return create_token(data["sub"], TokenType.REFRESH)
 
     @classmethod
-    def verify_token(cls, token: str):
+    def verify_token(cls, token: str, token_type=None):
         """
         Verify a JWT token and return the user identifier.
-        
+
+        Access and refresh tokens are signed with different secrets, so the
+        expected type also selects which secret the signature is checked
+        against. A refresh token therefore cannot be used as an access token,
+        or the reverse.
+
         Args:
             token: JWT token to verify
-            
+            token_type: Expected TokenType, defaulting to an access token
+
         Returns:
             UUID: User ID if token is valid, None otherwise
         """
         from app.core.config import settings
+        from app.schemas.token import TokenType
         from jose import jwt, JWTError
+
+        token_type = token_type or TokenType.ACCESS
+        secret = (
+            settings.JWT_SECRET_KEY
+            if token_type == TokenType.ACCESS
+            else settings.JWT_REFRESH_SECRET_KEY
+        )
         try:
-            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.ALGORITHM])
+            payload = jwt.decode(token, secret, algorithms=[settings.ALGORITHM])
+            if payload.get("type", token_type.value) != token_type.value:
+                return None
             sub = payload.get("sub")
             if sub is None:
                 return None

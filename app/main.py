@@ -16,7 +16,6 @@ The application follows a RESTful API design with proper separation of concerns:
 """
 
 from contextlib import asynccontextmanager  # Used for startup/shutdown events
-from datetime import datetime, timezone, timedelta
 from uuid import UUID  # For type validation of UUIDs in path parameters
 from typing import List
 
@@ -36,7 +35,7 @@ from app.auth.dependencies import get_current_active_user, get_current_user_reco
 from app.models.calculation import Calculation  # Database model for calculations
 from app.models.user import User  # Database model for users
 from app.schemas.calculation import CalculationBase, CalculationResponse, CalculationStats, CalculationUpdate  # API request/response schemas
-from app.schemas.token import TokenResponse  # API token schema
+from app.schemas.token import AccessTokenResponse, RefreshRequest, TokenResponse, TokenType  # API token schemas
 from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate, PasswordUpdate  # User schemas
 from app.database import Base, get_db, engine  # Database connection
 
@@ -222,20 +221,12 @@ def login_json(user_login: UserLogin, db: Session = Depends(get_db)):
         )
 
     user = auth_result["user"]
-    db.commit()  # commit the last_login update
-
-    # Ensure expires_at is timezone-aware
-    expires_at = auth_result.get("expires_at")
-    if expires_at and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    else:
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
 
     return TokenResponse(
         access_token=auth_result["access_token"],
         refresh_token=auth_result["refresh_token"],
         token_type="bearer",
-        expires_at=expires_at,
+        expires_at=auth_result["expires_at"],
         user_id=user.id,
         username=user.username,
         email=user.email,
@@ -263,6 +254,32 @@ def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
         "access_token": auth_result["access_token"],
         "token_type": "bearer"
     }
+
+
+@app.post("/auth/refresh", response_model=AccessTokenResponse, tags=["auth"])
+def refresh_access_token(refresh_request: RefreshRequest, db: Session = Depends(get_db)):
+    """
+    Exchange a refresh token for a new access token.
+
+    Access tokens are short-lived, so a client that still holds a valid refresh
+    token can stay signed in without asking for the password again. The refresh
+    token itself is not reissued; when it expires the user must log in.
+    """
+    invalid_token = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid refresh token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    user_id = User.verify_token(refresh_request.refresh_token, TokenType.REFRESH)
+    if user_id is None:
+        raise invalid_token
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or not user.is_active:
+        raise invalid_token
+
+    return AccessTokenResponse(**User.issue_access_token(user))
 
 
 # ------------------------------------------------------------------------------
@@ -423,19 +440,23 @@ def _apply_calculation_update(
     """
     Apply updated inputs to a calculation and recompute its result.
 
+    With no inputs supplied there is nothing to change, so the calculation is
+    returned untouched and updated_at keeps its stored value.
+
     Raises:
         HTTPException: 400 if the new inputs are invalid for the calculation type
             (for example, dividing by zero).
     """
-    if calculation_update.inputs is not None:
-        calculation.inputs = calculation_update.inputs
-        try:
-            calculation.result = calculation.get_result()
-        except ValueError as e:
-            db.rollback()
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    if calculation_update.inputs is None:
+        return calculation
 
-    calculation.updated_at = datetime.utcnow()
+    calculation.inputs = calculation_update.inputs
+    try:
+        calculation.result = calculation.get_result()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     db.commit()
     db.refresh(calculation)
     return calculation
@@ -507,5 +528,4 @@ def delete_calculation(
 # Main Block to Run the Server
 # ------------------------------------------------------------------------------
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run("app.main:app", host="127.0.0.1", port=8001, log_level="info")

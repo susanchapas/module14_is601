@@ -9,10 +9,19 @@ class TokenType(str, Enum):
     ACCESS = "access"
     REFRESH = "refresh"
 
-class Token(BaseModel):
-    """Schema for authentication token response."""
+class RefreshRequest(BaseModel):
+    """Schema for exchanging a refresh token for a new access token."""
+    refresh_token: str = Field(..., description="JWT refresh token issued at login")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."}
+        }
+    )
+
+class AccessTokenResponse(BaseModel):
+    """Schema for a freshly minted access token."""
     access_token: str = Field(..., description="JWT access token")
-    refresh_token: str = Field(..., description="JWT refresh token")
     token_type: str = Field(default="bearer", description="Token type")
     expires_at: datetime = Field(..., description="Token expiration timestamp")
 
@@ -21,21 +30,11 @@ class Token(BaseModel):
         json_schema_extra={
             "example": {
                 "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
-                "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
                 "token_type": "bearer",
                 "expires_at": "2025-01-01T00:00:00"
             }
         }
     )
-
-class TokenData(BaseModel):
-    """Schema for JWT token payload."""
-    user_id: UUID = Field(..., description="User ID from the token")
-    exp: datetime = Field(..., description="Token expiration timestamp")
-    jti: str = Field(..., description="Unique token identifier")
-    token_type: TokenType = Field(..., description="Type of token")
-
-    model_config = ConfigDict(from_attributes=True)
 
 class TokenResponse(BaseModel):
     """Schema for complete token response including user data."""

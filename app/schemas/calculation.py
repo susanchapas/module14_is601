@@ -145,31 +145,6 @@ class CalculationBase(BaseModel):
         }
     )
 
-class CalculationCreate(CalculationBase):
-    """
-    Schema for creating a new Calculation.
-    
-    This extends the base schema with a user_id field for database insertion.
-    In the API, this schema is not directly exposed to clients; instead, 
-    the user_id is obtained from the authentication token.
-    """
-    user_id: UUID = Field(
-        ...,
-        description="UUID of the user who owns this calculation",
-        example="123e4567-e89b-12d3-a456-426614174000"
-    )
-
-    model_config = ConfigDict(
-        # Example for documentation and testing
-        json_schema_extra={
-            "example": {
-                "type": "addition",
-                "inputs": [10.5, 3, 2],
-                "user_id": "123e4567-e89b-12d3-a456-426614174000"
-            }
-        }
-    )
-
 class CalculationUpdate(BaseModel):
     """
     Schema for updating an existing Calculation.
@@ -301,9 +276,9 @@ class CalculationResponse(CalculationBase):
         ..., 
         description="Time when the calculation was last updated"
     )
-    result: float = Field(
-        ...,
-        description="Result of the calculation",
+    result: Optional[float] = Field(
+        None,
+        description="Result of the calculation, or null if it has not been computed yet",
         example=15.5
     )
 

@@ -60,7 +60,9 @@ jobs:
         run: |
           source venv/bin/activate
 
-          # Coverage is configured in pytest.ini (--cov=app)
+          # Coverage is configured in pytest.ini (--cov=app --cov-report=term-missing).
+          # The HTML report is requested here rather than in pytest.ini so that a
+          # local single-test run does not regenerate htmlcov/.
 
           # 1) Unit tests
           pytest tests/unit/ --junitxml=test-results/junit.xml
@@ -69,7 +71,7 @@ jobs:
           pytest tests/integration/
 
           # 3) E2E tests (API + Playwright browser tests)
-          pytest tests/e2e/
+          pytest tests/e2e/ --cov-report=html
 
   security:
     needs: test

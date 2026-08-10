@@ -15,13 +15,12 @@ basic mathematical operations: addition, subtraction, multiplication, and divisi
 """
 
 from collections import Counter
-from datetime import datetime
 import uuid
 from typing import Any, Dict, List
 from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, declared_attr
-from sqlalchemy.ext.declarative import declared_attr
+from app.core.datetime_utils import utcnow
 from app.database import Base
 
 class AbstractCalculation:
@@ -121,12 +120,13 @@ class AbstractCalculation:
     def created_at(cls):
         """
         Timestamp when the calculation was created.
-        
-        Automatically set to the current time when inserted.
+
+        Automatically set to the current time when inserted. Stored
+        timezone-aware, like every other timestamp in the application.
         """
         return Column(
-            DateTime, 
-            default=datetime.utcnow,
+            DateTime(timezone=True),
+            default=utcnow,
             nullable=False
         )
 
@@ -138,9 +138,9 @@ class AbstractCalculation:
         Automatically updated to the current time when the record changes.
         """
         return Column(
-            DateTime, 
-            default=datetime.utcnow,
-            onupdate=datetime.utcnow,
+            DateTime(timezone=True),
+            default=utcnow,
+            onupdate=utcnow,
             nullable=False
         )
 

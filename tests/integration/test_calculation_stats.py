@@ -7,6 +7,8 @@ scoping and the response schema. The aggregation rules themselves are covered in
 tests/unit/test_calculation_stats.py.
 """
 
+from datetime import datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -158,7 +160,8 @@ def test_stats_report_the_last_calculation_time(client, db_session, user):
     add_calculation(db_session, user, "addition", [1, 2])
     newest = add_calculation(db_session, user, "multiplication", [2, 3])
 
-    assert get_stats(client)["last_calculation_at"] == newest.created_at.isoformat()
+    reported = get_stats(client)["last_calculation_at"]
+    assert datetime.fromisoformat(reported.replace("Z", "+00:00")) == newest.created_at
 
 
 # ---------------------------------------------------------------------------
