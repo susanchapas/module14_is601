@@ -34,7 +34,7 @@ front end, and a CI/CD pipeline that tests, scans, and publishes a Docker image.
 - JWT authentication (register, login, bearer-token protected routes)
 - Server-rendered UI with forms for every BREAD operation
 - Shared client-side validation (numeric checks, operation types, divide-by-zero)
-- 152 automated tests: unit, integration, API end-to-end, and Playwright browser tests
+- 309 automated tests: unit, integration, API end-to-end, and Playwright browser tests
 
 ## Tech Stack
 
@@ -171,8 +171,8 @@ pytest
 ### By category
 
 ```bash
-pytest tests/unit/           # Pure calculator logic
-pytest tests/integration/    # Models, schemas, database, auth
+pytest tests/unit/           # Pure calculator logic and client-side validators
+pytest tests/integration/    # Models, schemas, routes, database, auth
 pytest tests/e2e/            # API + Playwright browser tests
 ```
 
