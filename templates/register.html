@@ -157,30 +157,9 @@ document.addEventListener('DOMContentLoaded', function() {
         successAlert.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
-    // Helper function to validate email format
-    function isValidEmail(email) {
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    }
-
-    // Helper function to validate password strength
-    function isValidPassword(password) {
-        return password.length >= 8 && // at least 8 characters
-               /[A-Z]/.test(password) && // at least one uppercase
-               /[a-z]/.test(password) && // at least one lowercase
-               /[0-9]/.test(password) && // at least one number
-               /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password); // at least one special character
-    }
-    
-    // Helper function to add validation styling
-    function setInputValidation(input, isValid) {
-        if (isValid) {
-            input.classList.remove('border-red-500');
-            input.classList.add('border-green-500');
-        } else {
-            input.classList.remove('border-green-500');
-            input.classList.add('border-red-500');
-        }
-    }
+    const isValidEmail = window.isValidEmail;
+    const isValidPassword = window.isValidPassword;
+    const setInputValidation = window.setInputValidation;
 
     form.addEventListener('submit', async function(e) {
         e.preventDefault();

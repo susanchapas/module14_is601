@@ -44,6 +44,68 @@ window.validateCalculationInputs = function (raw, type) {
 };
 
 /**
+ * Check an email address for a plausible shape before sending it to the server.
+ *
+ * @param {string} email
+ * @returns {boolean}
+ */
+window.isValidEmail = function (email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
+
+/**
+ * Describe the first strength rule a password fails.
+ *
+ * The rules and their wording mirror validate_password_strength in
+ * app/schemas/user.py, so the browser reports the same reason the API would
+ * without needing a round trip.
+ *
+ * @param {string} password
+ * @returns {(string|null)} The failure message, or null when the password is strong.
+ */
+window.describePasswordError = function (password) {
+  const rules = [
+    [(value) => value.length >= 8, 'Password must be at least 8 characters long'],
+    [(value) => /[A-Z]/.test(value), 'Password must contain at least one uppercase letter'],
+    [(value) => /[a-z]/.test(value), 'Password must contain at least one lowercase letter'],
+    [(value) => /[0-9]/.test(value), 'Password must contain at least one digit'],
+    [
+      (value) => /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(value),
+      'Password must contain at least one special character'
+    ]
+  ];
+
+  const failed = rules.find(([passes]) => !passes(String(password || '')));
+  return failed ? failed[1] : null;
+};
+
+/**
+ * Check a password against the same strength rules the API enforces.
+ *
+ * @param {string} password
+ * @returns {boolean}
+ */
+window.isValidPassword = function (password) {
+  return window.describePasswordError(password) === null;
+};
+
+/**
+ * Mark an input as valid or invalid with a coloured border.
+ *
+ * @param {HTMLElement} input
+ * @param {boolean} isValid
+ */
+window.setInputValidation = function (input, isValid) {
+  if (isValid) {
+    input.classList.remove('border-red-500');
+    input.classList.add('border-green-500');
+  } else {
+    input.classList.remove('border-green-500');
+    input.classList.add('border-red-500');
+  }
+};
+
+/**
  * Pull a human-readable message out of an error response body.
  *
  * FastAPI returns `detail` as a string for HTTPException but as a list of error

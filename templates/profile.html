@@ -335,8 +335,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     const newPassword = document.getElementById('new_password').value;
     const confirmNewPassword = document.getElementById('confirm_new_password').value;
 
+    const passwordError = window.describePasswordError(newPassword);
+    if (passwordError) {
+      showError(passwordError);
+      return;
+    }
+
     if (newPassword !== confirmNewPassword) {
       showError('New password and confirmation do not match');
+      return;
+    }
+
+    if (newPassword === currentPassword) {
+      showError('New password must be different from current password');
       return;
     }
 
@@ -381,6 +392,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     } finally {
       submitButton.disabled = false;
       submitButton.innerHTML = originalButtonContent;
+    }
+  });
+
+  const newPasswordInput = document.getElementById('new_password');
+  const confirmPasswordInput = document.getElementById('confirm_new_password');
+
+  newPasswordInput.addEventListener('input', () => {
+    if (newPasswordInput.value) {
+      window.setInputValidation(newPasswordInput, window.isValidPassword(newPasswordInput.value));
+    } else {
+      newPasswordInput.classList.remove('border-red-500', 'border-green-500');
+    }
+  });
+
+  confirmPasswordInput.addEventListener('input', () => {
+    if (confirmPasswordInput.value) {
+      window.setInputValidation(
+        confirmPasswordInput,
+        confirmPasswordInput.value === newPasswordInput.value
+      );
+    } else {
+      confirmPasswordInput.classList.remove('border-red-500', 'border-green-500');
     }
   });
 
